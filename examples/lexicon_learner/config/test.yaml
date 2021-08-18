@@ -1,0 +1,12 @@
+task:
+  _name: learn_lexicon
+  data: /home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/word_level/
+
+criterion:
+  _name: lexicon_learner
+
+optimizer:
+  _name: adam
+
+model:
+  _name: lexicon_learner
