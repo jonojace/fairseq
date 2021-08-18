@@ -35,6 +35,26 @@ fairseq-train $DATA \
     --no-save
 ```
 
+To submit as a slurm job, prepend the slurm script:
+
+```bash
+MODEL_NAME=test_model3
+DATA=/home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/word_level/
+./sbatch.sh 2080 fairseq-train $DATA \
+    --tensorboard-logdir tb_logs/$MODEL_NAME \
+    --task learn_lexicon \
+    --arch lexicon_learner \
+    --criterion lexicon_learner \
+    --optimizer adam \
+    --batch-size 8 \
+    --max-train-wordtypes 25 \
+    --max-train-examples-per-wordtype 25 \
+    --valid-subset valid-seen,valid-unseen \
+    --save-interval 1 --max-epoch 2 \
+    --save-dir checkpoints/$MODEL_NAME \
+    --no-save
+```
+
 (GET ME WORKING!) From config file and command line **(NOTE WE ARE USING fairseq-hydra-train now)**:
 
 ```bash
