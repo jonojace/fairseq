@@ -98,67 +98,62 @@ class WordAlignedAudioDataset(FairseqDataset):
             max_train_wordtypes=None, # leave as None to use as many wordtypes as possible for training
             max_train_examples_per_wordtype=None, # leave as None to use all examples for each wordtype
             min_train_examples_per_wordtype=2,
-            valid_seen_wordtypes=10,  # how many wordtypes seen during training to include in validation
-            valid_unseen_wordtypes=10,  # how many wordtypes to leave out of training and include in validation
-            valid_examples_per_wordtype=5, # for valid-seen and valid-unseen
-            randomise=True,
+            valid_seen_wordtypes=100,  # how many wordtypes seen during training to include in validation
+            valid_unseen_wordtypes=100,  # how many wordtypes to leave out of training and include in validation
+            valid_examples_per_wordtype=25, # for valid-seen and valid-unseen
+            randomise_wordtypes=True,
             random_seed=1337,
+            wordtypes_to_ignore=('SIL', '<unk>'),
     ):
         super().__init__()
 
-        if max_train_wordtypes < valid_seen_wordtypes:
-            raise ValueError("max_train_wordtypes < valid_seen_wordtypes")
+        logger.info(f"Creating dataset...")
+
+        # valid-seen is by definition a subset of the training dataset
+        if max_train_wordtypes is not None and max_train_wordtypes < valid_seen_wordtypes:
+            raise ValueError(f"max_train_wordtypes ({max_train_wordtypes}) < valid_seen_wordtypes ({valid_seen_wordtypes})")
 
         # need at least 2 examples for training and 2 for validation (2+2=4)
         # so that we can pull at least 1 positive example during training and validation for a wordtype
         assert min_train_examples_per_wordtype >= 2
         assert valid_examples_per_wordtype >= 2
+
         min_examples_per_wordtype = min_train_examples_per_wordtype + valid_examples_per_wordtype
 
-        if max_train_examples_per_wordtype is not None:
-            assert max_train_examples_per_wordtype >= min_examples_per_wordtype, f"At least {min_examples_per_wordtype} examples needed to draw a positive example for a given anchor during either training or validation."
+        # if max_train_examples_per_wordtype is not None:
+        #     assert max_train_examples_per_wordtype >= min_examples_per_wordtype, f"At least {min_examples_per_wordtype} examples needed to draw a positive example for a given anchor during either training or validation. (max_train_examples_per_wordtype={max_train_examples_per_wordtype})"
 
+        # check data split
         if split == "test":
             raise NotImplementedError
-
         if split not in ["train", "valid-seen", "valid-unseen"]:
             raise ValueError(f"'{split}' not a correct dataset split.")
 
         ################################################################################################################
-        # open main data folder and load word-aligned speech reps for all words in the vocab
+        ### Open main data folder and load word-aligned speech reps for all words in the vocab
         self.fpaths = []
         self.sizes = []
         all_indices = []
 
-        # a mapping between a wordtype and a list of positive examples of that wordtype
+        # create a mapping between a wordtype and a list of positive examples of that wordtype
         # this data structure is used to quickly find positive and negative examples for a particular word token
         self.wordtype2indices = defaultdict(set)
 
-        # load all subfolders (which correspond to wordtypes)
+        # load all subfolders (each of which correspond to a unique wordtype)
         all_subfolders = sorted(os.listdir(data_path))
 
-        if randomise:
+        # optionally randomise the order so its not alphabetical
+        if randomise_wordtypes:
             random.seed(random_seed)
             random.shuffle(all_subfolders)
 
-
-        # TODO add optional randomisation of this list of all wordtypes?
-        # TODO so that if we choose a subset they are evenly distributed.
-
-        # ignore some given wordtypes
-        wordtypes_to_ignore = ['SIL', '<unk>']
+        # skip wordtypes we wish to ignore
         for w in wordtypes_to_ignore:
             if w in all_subfolders:
                 all_subfolders.remove(w)
 
-        num_wordtype_dirs = len(all_subfolders)
-
-        # start adding each word token to the list of filenames, wordtype by wordtype
-        idx = 0
-        skipped_wordtypes = []
-        logger.info(f"Creating dataset...")
-
         # skip any wordtypes from consideration if they do not have enough examples
+        skipped_wordtypes = []
         logger.info(f"Skipping wordtypes that do not have enough examples...")
         for wordtype in tqdm(all_subfolders, unit='wordtype'):
             all_wordtoken_files = os.listdir(os.path.join(data_path, wordtype))
@@ -171,10 +166,13 @@ class WordAlignedAudioDataset(FairseqDataset):
         # calculate start and end wordtype indices depending on the dataset split/split subset
         if split == "train":
             start_wordtype_idx = 0
-            if num_wordtype_dirs < max_train_wordtypes + valid_unseen_wordtypes:
-                end_wordtype_idx = num_wordtype_dirs - valid_unseen_wordtypes
+            if max_train_wordtypes is None:
+                end_wordtype_idx = len(all_subfolders) - valid_unseen_wordtypes
             else:
-                end_wordtype_idx = max_train_examples_per_wordtype
+                if len(all_subfolders) >= max_train_wordtypes + valid_unseen_wordtypes:
+                    end_wordtype_idx = max_train_wordtypes
+                else:
+                    end_wordtype_idx = len(all_subfolders) - valid_unseen_wordtypes
         elif split == "valid-seen":
             start_wordtype_idx = 0
             end_wordtype_idx = valid_seen_wordtypes
@@ -184,19 +182,22 @@ class WordAlignedAudioDataset(FairseqDataset):
         else:
             raise ValueError(f"'{split}' not a correct dataset split or dataset split subset.")
 
+        wordtype_to_incl_idx = 0
+
         for wordtype in tqdm(all_subfolders[start_wordtype_idx:end_wordtype_idx], unit='wordtype'):
             all_wordtoken_files = os.listdir(os.path.join(data_path, wordtype))
-            # if len(all_wordtoken_files) >= min_examples_per_wordtype:
-            all_wordtoken_files = sorted(all_wordtoken_files) # so that ordering is consistent
-            num_wordtoken_files = len(all_wordtoken_files)
+            all_wordtoken_files = sorted(all_wordtoken_files) # ensure consistent ordering
 
             # calculate start and end wordtoken indices depending on the dataset split/split subset
             if split in ["train"]:
                 start_wordtoken_idx = 0
-                if num_wordtoken_files < max_train_examples_per_wordtype + valid_examples_per_wordtype:
-                    end_wordtoken_idx = num_wordtoken_files - valid_examples_per_wordtype
+                if max_train_examples_per_wordtype is None:
+                    end_wordtoken_idx = len(all_wordtoken_files) - valid_examples_per_wordtype
                 else:
-                    end_wordtoken_idx = max_train_examples_per_wordtype
+                    if len(all_wordtoken_files) >= max_train_examples_per_wordtype + valid_examples_per_wordtype:
+                        end_wordtoken_idx = max_train_examples_per_wordtype
+                    else:
+                        end_wordtoken_idx = len(all_wordtoken_files) - valid_examples_per_wordtype
             elif split in ["valid-seen", "valid-unseen"]:
                 start_wordtoken_idx = -valid_examples_per_wordtype
                 end_wordtoken_idx = None
@@ -209,30 +210,25 @@ class WordAlignedAudioDataset(FairseqDataset):
                 # assign data associated with this word token / index
                 self.sizes.append(int(get_timesteps_from_filename(wordtoken_file)))
                 self.fpaths.append(filepath)
-                self.wordtype2indices[wordtype].add(idx)
-                all_indices.append(idx)
+                self.wordtype2indices[wordtype].add(wordtype_to_incl_idx)
+                all_indices.append(wordtype_to_incl_idx)
 
-                idx += 1
-            # else:
-            #     skipped_wordtypes.append(wordtype)
+                wordtype_to_incl_idx += 1
 
         self.sizes = np.array(self.sizes, dtype=np.int64)
         # self.fpaths = pyarrow.array(self.fpaths)  # uncomment to increase performance using pyarrow
 
+        # Sanity checks
         assert all_indices == list(range(len(self.fpaths)))
         assert_msg = f"len(self.sizes)=={len(self.sizes)}, len(self.fnames)=={len(self.fpaths)}, sum(len(v) for v in " \
-                     f"self.wordtype2indices.values())=={sum(len(v) for v in self.wordtype2indices.values())}, idx + 1=={idx} "
+                     f"self.wordtype2indices.values())=={sum(len(v) for v in self.wordtype2indices.values())}, idx + 1=={wordtype_to_incl_idx} "
         assert len(self.sizes) == len(self.fpaths) == sum(
-            len(v) for v in self.wordtype2indices.values()) == idx, assert_msg
+            len(v) for v in self.wordtype2indices.values()) == wordtype_to_incl_idx, assert_msg
 
         self.all_indices = set(all_indices)
 
         logger.info(f"Finished creating word-aligned speech representations {split} dataset containing {len(self.wordtype2indices)} wordtypes "
                     f"and {len(self.fpaths)} word tokens in total.")
-
-        # print("YYY", split)
-        # for k in self.wordtype2indices.keys():
-        #     print("YYY", k, self.wordtype2indices[k])
 
     def __getitem__(self, anchor_index):
         positive_index = list(self.get_positive_indices(anchor_index, num_examples=1))[0]
