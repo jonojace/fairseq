@@ -15,13 +15,18 @@ from fairseq.modules import (
 Commands for debugging training of this model:
 
 DATA=/home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/word_level/
+TB_LOG_DIR=/home/s1785140/fairseq/tensorboard_logs/
 fairseq-train $DATA \
+    --tensorboard-logdir $TB_LOG_DIR \
     --task learn_lexicon \
     --arch lexicon_learner \
+    --criterion lexicon_learner \
     --optimizer adam \
-    --batch-size 4 \
-    --num-wordtypes 100 \
-    --max-examples-per-wordtype 100
+    --batch-size 2 \
+    --max-num-wordtypes 50 \
+    --max-train-examples-per-wordtype 50 \
+    --max-epoch 5 \
+    --no-save
 """
 
 @dataclass
@@ -65,8 +70,8 @@ class LexiconLearner(BaseFairseqModel):
 
         return cls(cfg)
 
-    def forward(self, x):
-        x = self.encoder(x)
+    def forward(self, src_tokens, src_lengths):
+        x = self.encoder(src_tokens, src_lengths)
         return x
 
 
@@ -89,17 +94,35 @@ class LSTMEncoder(FairseqEncoder):
 
         self.output_projection = nn.Linear(cfg.enc_hid_dim, cfg.enc_out_dim)
 
-    def forward(self, src_tokens, src_lengths):
+    def forward(
+            self,
+            src_tokens,
+            src_lengths,
+    ):
+        layer_to_return = 1 # TODO make this a cfg setting?
 
         x = self.dropout(src_tokens)
 
+        # print("XXX", src_tokens.size(), src_tokens.dtype)
+        # print("XXX", src_lengths.size(), src_lengths.dtype)
+
         # Pack the sequence into a PackedSequence object to feed to the LSTM.
-        x = nn.utils.rnn.pack_padded_sequence(src_tokens, src_lengths, batch_first=True)
+        x = nn.utils.rnn.pack_padded_sequence(
+            src_tokens,
+            src_lengths.cpu(),
+            batch_first=True,
+            enforce_sorted=False, # TODO could have bad side effects? to perf?
+        )
+
+        # TODO NEED TO UNPACK PADDED SEQ AT ANY TIME???
 
         # Get the output from the LSTM.
-        _outputs, (final_hidden, _final_cell) = self.lstm(x)
+        _outputs, (final_timestep_hidden, _final_timestep_cell) = self.lstm(x)
+
+        # Only return from one layer of the LSTM
+        final_timestep_hidden = final_timestep_hidden.squeeze(0)[layer_to_return,:,:]
 
         return {
             # this will have shape `(bsz, hidden_dim)`
-            'final_hidden': final_hidden.squeeze(0),
+            'final_timestep_hidden': final_timestep_hidden,
         }
