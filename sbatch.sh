@@ -29,7 +29,7 @@
 # Global vars
 # =====================
 
-LOG_DIR="./logs_slurm"
+LOG_DIR="./slurm_logs"
 
 # =====================
 # check if specific gpu was supplied
@@ -64,7 +64,8 @@ tasks=1
 part=ILCC_GPU,CDT_GPU
 # part=ILCC_GPU,CDT_GPU,M_AND_I_GPU
 time=10-00:00:00
-mem=8G
+#mem=8G
+mem=16G
 mail_user=s1785140@sms.ed.ac.uk
 # mail_type=BEGIN,END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT # same as ALL
 mail_type=END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT
@@ -75,48 +76,48 @@ mail_type=END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT
 # create the sbatch file
 # =====================
 #shebang
-echo '#!/bin/bash' > job.sh
+echo '#!/bin/bash' > temp_slurm_job.sh
 
 #job params
-echo "#SBATCH --nodes=${nodes}" >> job.sh
-echo "#SBATCH --gres=gpu:${gpus}" >> job.sh
-echo "#SBATCH --cpus-per-task=${cpus}" >> job.sh
-echo "#SBATCH --mem=${mem}" >> job.sh
-echo "#SBATCH --ntasks=${tasks}" >> job.sh
-echo "#SBATCH --time=${time}" >> job.sh
-echo "#SBATCH --partition=${part}" >> job.sh
-echo "#SBATCH --mail-user=${mail_user}" >> job.sh
-echo "#SBATCH --mail-type=${mail_type}" >> job.sh
-echo "#SBATCH --output=${LOG_DIR}/%j" >> job.sh #Note! remember to make this directory if it doesn't exist
+echo "#SBATCH --nodes=${nodes}" >> temp_slurm_job.sh
+echo "#SBATCH --gres=gpu:${gpus}" >> temp_slurm_job.sh
+echo "#SBATCH --cpus-per-task=${cpus}" >> temp_slurm_job.sh
+echo "#SBATCH --mem=${mem}" >> temp_slurm_job.sh
+echo "#SBATCH --ntasks=${tasks}" >> temp_slurm_job.sh
+echo "#SBATCH --time=${time}" >> temp_slurm_job.sh
+echo "#SBATCH --partition=${part}" >> temp_slurm_job.sh
+echo "#SBATCH --mail-user=${mail_user}" >> temp_slurm_job.sh
+echo "#SBATCH --mail-type=${mail_type}" >> temp_slurm_job.sh
+echo "#SBATCH --output=${LOG_DIR}/%j" >> temp_slurm_job.sh #Note! remember to make this directory if it doesn't exist
 
 #rsyncing of data to scratch disk
-# echo "rsync -avu ${repo_home}/data $scratch_folder/" >> job.sh #move preprocessed data from repo dir to the scratch disk
-# echo 'if [ "$?" -eq "0" ]' >> job.sh #'$?' holds result of last command, '0' is success
-# echo 'then' >> job.sh
-# echo "  echo \"Rsync succeeded.\"; data_path_flag=\"--data_path ${scratch_folder}/data\"" >> job.sh #load data from scratch disk
-# echo 'else' >> job.sh
-# echo '  echo "Error while running rsync."; data_path_flag=""' >> job.sh #load data over network
-# echo 'fi' >> job.sh
+# echo "rsync -avu ${repo_home}/data $scratch_folder/" >> temp_slurm_job.sh #move preprocessed data from repo dir to the scratch disk
+# echo 'if [ "$?" -eq "0" ]' >> temp_slurm_job.sh #'$?' holds result of last command, '0' is success
+# echo 'then' >> temp_slurm_job.sh
+# echo "  echo \"Rsync succeeded.\"; data_path_flag=\"--data_path ${scratch_folder}/data\"" >> temp_slurm_job.sh #load data from scratch disk
+# echo 'else' >> temp_slurm_job.sh
+# echo '  echo "Error while running rsync."; data_path_flag=""' >> temp_slurm_job.sh #load data over network
+# echo 'fi' >> temp_slurm_job.sh
 
 ##pre experiment logging
 #start_date=`date '+%d/%m/%Y %H:%M:%S'`
-#echo "echo \"Job started: $start_date\"" >> job.sh
-#echo "start=`date +%s`" >> job.sh
+#echo "echo \"Job started: $start_date\"" >> temp_slurm_job.sh
+#echo "start=`date +%s`" >> temp_slurm_job.sh
 
 #actual command to be run on cluster
-#echo "srun ${cmd_to_run_on_cluster} \${data_path_flag}" >> job.sh
-echo "srun ${cmd_to_run_on_cluster}" >> job.sh
+#echo "srun ${cmd_to_run_on_cluster} \${data_path_flag}" >> temp_slurm_job.sh
+echo "srun ${cmd_to_run_on_cluster}" >> temp_slurm_job.sh
 
 ##post experiment logging
-#echo "echo \"Job started: $start_date\"" >> job.sh
-#echo "echo \"Job finished: $(date '+%d/%m/%Y %H:%M:%S')\"" >> job.sh
-#echo "end=`date +%s`" >> job.sh
-#echo "runtime=$((end-start))" >> job.sh
-#echo "echo \"Job took: $runtime seconds\"" >> job.sh
+#echo "echo \"Job started: $start_date\"" >> temp_slurm_job.sh
+#echo "echo \"Job finished: $(date '+%d/%m/%Y %H:%M:%S')\"" >> temp_slurm_job.sh
+#echo "end=`date +%s`" >> temp_slurm_job.sh
+#echo "runtime=$((end-start))" >> temp_slurm_job.sh
+#echo "echo \"Job took: $runtime seconds\"" >> temp_slurm_job.sh
 
 # =====================
 # submit this temporary sbatch script to the cluster
 # =====================
-# cat job.sh #debug
-sbatch job.sh
-# rm job.sh #dont need to do this if u want to inspect/modify the job script that was created
+# cat temp_slurm_job.sh #debug
+sbatch temp_slurm_job.sh
+# rm temp_slurm_job.sh #dont need to do this if u want to inspect/modify the job script that was created
