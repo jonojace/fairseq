@@ -83,15 +83,15 @@ class LexiconLearnerCriterion(FairseqCriterion):
         )
         metrics.log_scalar("sample_size", sample_size)
 
-        ### Validation only metrics
-        wordtypes = [log.get("wordtypes", 0) for log in logging_outputs]
-        if wordtypes[0] == 0:
-            # training
-            pass
-        else:
-            # valid_step()
-            print("AAA", "len(logging_outputs)", len(logging_outputs))
-            print("AAA", "wordtypes", wordtypes)
+        # ### Validation only metrics
+        # wordtypes = [log.get("wordtypes", 0) for log in logging_outputs]
+        # if wordtypes[0] == 0:
+        #     # training
+        #     pass
+        # else:
+        #     # valid_step()
+        #     print("AAA", "len(logging_outputs)", len(logging_outputs))
+        #     print("AAA", "wordtypes", wordtypes)
 
 
     @staticmethod

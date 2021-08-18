@@ -54,32 +54,31 @@ class LearnLexiconTask(FairseqTask):
             max_train_examples_per_wordtype=task_cfg.max_train_examples_per_wordtype,
         )
 
-    def valid_step(self, sample, model, criterion):
-        model.eval()
-        with torch.no_grad():
-            loss, sample_size, logging_output = criterion(model, sample)
-
-            # get embeddings
-            net_output = model(**sample["net_input"])
-            b_sz = net_output["final_timestep_hidden"].size(0)
-            assert b_sz % 3 == 0
-            num_anchors = int(b_sz / 3)
-            anchors = net_output["final_timestep_hidden"][:num_anchors]
-
-            # get wordtypes associated with anchors
-            ids = sample["anchor_indices"]
-            assert num_anchors == ids.size(0)
-            print("ZZZ", ids, ids.size())
-
-            wordtypes = sample["anchor_wordtypes"]
-
-            print("ZZZ", wordtypes)
-
-            logging_output["wordtypes"] = wordtypes
-
-
-
-        return loss, sample_size, logging_output
+    # def valid_step(self, sample, model, criterion):
+    #     """override valid_step() in order to capture embeddings for words so that we can plot them"""
+    #     model.eval()
+    #     with torch.no_grad():
+    #         loss, sample_size, logging_output = criterion(model, sample)
+    #
+    #         # get embeddings
+    #         net_output = model(**sample["net_input"])
+    #         b_sz = net_output["final_timestep_hidden"].size(0)
+    #         assert b_sz % 3 == 0
+    #         num_anchors = int(b_sz / 3)
+    #         anchors = net_output["final_timestep_hidden"][:num_anchors]
+    #
+    #         # get wordtypes associated with anchors
+    #         ids = sample["anchor_indices"]
+    #         assert num_anchors == ids.size(0)
+    #         print("ZZZ", ids, ids.size())
+    #
+    #         wordtypes = sample["anchor_wordtypes"]
+    #
+    #         print("ZZZ", wordtypes)
+    #
+    #         logging_output["wordtypes"] = wordtypes
+    #
+    #     return loss, sample_size, logging_output
 
     @property
     def source_dictionary(self):
