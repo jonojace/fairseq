@@ -7,17 +7,18 @@ from fairseq.data import (
     Dictionary,
 )
 from typing import Optional
+import torch
 
 
 @dataclass
 class LearnLexiconConfig(FairseqDataclass):
     data: str = field(default=MISSING, metadata={"help": "path to data directory"})
 
-    num_wordtypes: Optional[int] = field(
+    max_train_wordtypes: Optional[int] = field(
         default=None, metadata={"help": "number of word types to learn lexicon with"}
     )
 
-    max_examples_per_wordtype: Optional[int] = field(
+    max_train_examples_per_wordtype: Optional[int] = field(
         default=None, metadata={"help": "number of examples per word type to learn lexicon with"}
     )
 
@@ -49,9 +50,36 @@ class LearnLexiconTask(FairseqTask):
         self.datasets[split] = WordAlignedAudioDataset(
             data_path,
             split=split,
-            num_wordtypes=task_cfg.num_wordtypes,
-            max_examples_per_wordtype=task_cfg.max_examples_per_wordtype,
+            max_train_wordtypes=task_cfg.max_train_wordtypes,
+            max_train_examples_per_wordtype=task_cfg.max_train_examples_per_wordtype,
         )
+
+    def valid_step(self, sample, model, criterion):
+        model.eval()
+        with torch.no_grad():
+            loss, sample_size, logging_output = criterion(model, sample)
+
+            # get embeddings
+            net_output = model(**sample["net_input"])
+            b_sz = net_output["final_timestep_hidden"].size(0)
+            assert b_sz % 3 == 0
+            num_anchors = int(b_sz / 3)
+            anchors = net_output["final_timestep_hidden"][:num_anchors]
+
+            # get wordtypes associated with anchors
+            ids = sample["anchor_indices"]
+            assert num_anchors == ids.size(0)
+            print("ZZZ", ids, ids.size())
+
+            wordtypes = sample["anchor_wordtypes"]
+
+            print("ZZZ", wordtypes)
+
+            logging_output["wordtypes"] = wordtypes
+
+
+
+        return loss, sample_size, logging_output
 
     @property
     def source_dictionary(self):
