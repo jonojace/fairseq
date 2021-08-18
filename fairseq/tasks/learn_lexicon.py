@@ -22,6 +22,22 @@ class LearnLexiconConfig(FairseqDataclass):
         default=None, metadata={"help": "number of examples per word type to learn lexicon with"}
     )
 
+    min_train_examples_per_wordtype: Optional[int] = field(
+        default=2, metadata={"help": "number of word types to learn lexicon with"}
+    )
+
+    valid_seen_wordtypes: Optional[int] = field(
+        default=100, metadata={"help": "number of wordtypes seen in training to include in validation"}
+    )
+
+    valid_unseen_wordtypes: Optional[int] = field(
+        default=100, metadata={"help": "number of wordtypes unseen in training to include in validation"}
+    )
+
+    valid_examples_per_wordtype: Optional[int] = field(
+        default=25, metadata={"help": "number of examples per seen/unseen wordtype to include in validation"}
+    )
+
 
 @register_task("learn_lexicon", dataclass=LearnLexiconConfig)
 class LearnLexiconTask(FairseqTask):
