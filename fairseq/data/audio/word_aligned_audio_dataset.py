@@ -45,6 +45,7 @@ def zeropad_to_len(t, targ_len, hid_dim):
     return torch.cat([t, t.new_zeros(len_diff, hid_dim)]), len_diff
 
 
+
 class WordAlignedAudioDataset(FairseqDataset):
     """
     A dataset that maps between word-tokens in a corpus to their speech representations.
@@ -82,19 +83,46 @@ class WordAlignedAudioDataset(FairseqDataset):
       It is named as:
         <wordtype>_<utt id>_occ<numbered occurrence in the utterance>_len<num of timesteps in sequence>.pt
 
+    Training set:
+
+    Validation set:
+        Seen:
+        Unseen:
+
     """
 
     def __init__(
             self,
             data_path,
             split,
-            num_wordtypes=None,
-            max_examples_per_wordtype=None,
+            max_train_wordtypes=None, # leave as None to use as many wordtypes as possible for training
+            max_train_examples_per_wordtype=None, # leave as None to use all examples for each wordtype
+            min_train_examples_per_wordtype=2,
+            valid_seen_wordtypes=10,  # how many wordtypes seen during training to include in validation
+            valid_unseen_wordtypes=10,  # how many wordtypes to leave out of training and include in validation
+            valid_examples_per_wordtype=5, # for valid-seen and valid-unseen
+            randomise=True,
+            random_seed=1337,
     ):
         super().__init__()
 
-        if max_examples_per_wordtype is not None:
-            assert max_examples_per_wordtype >= 2, "2 examples needed to draw a positive example for a given anchor."
+        if max_train_wordtypes < valid_seen_wordtypes:
+            raise ValueError("max_train_wordtypes < valid_seen_wordtypes")
+
+        # need at least 2 examples for training and 2 for validation (2+2=4)
+        # so that we can pull at least 1 positive example during training and validation for a wordtype
+        assert min_train_examples_per_wordtype >= 2
+        assert valid_examples_per_wordtype >= 2
+        min_examples_per_wordtype = min_train_examples_per_wordtype + valid_examples_per_wordtype
+
+        if max_train_examples_per_wordtype is not None:
+            assert max_train_examples_per_wordtype >= min_examples_per_wordtype, f"At least {min_examples_per_wordtype} examples needed to draw a positive example for a given anchor during either training or validation."
+
+        if split == "test":
+            raise NotImplementedError
+
+        if split not in ["train", "valid-seen", "valid-unseen"]:
+            raise ValueError(f"'{split}' not a correct dataset split.")
 
         ################################################################################################################
         # open main data folder and load word-aligned speech reps for all words in the vocab
@@ -108,6 +136,12 @@ class WordAlignedAudioDataset(FairseqDataset):
 
         # load all subfolders (which correspond to wordtypes)
         all_subfolders = sorted(os.listdir(data_path))
+
+        if randomise:
+            random.seed(random_seed)
+            random.shuffle(all_subfolders)
+
+
         # TODO add optional randomisation of this list of all wordtypes?
         # TODO so that if we choose a subset they are evenly distributed.
 
@@ -117,25 +151,70 @@ class WordAlignedAudioDataset(FairseqDataset):
             if w in all_subfolders:
                 all_subfolders.remove(w)
 
+        num_wordtype_dirs = len(all_subfolders)
+
         # start adding each word token to the list of filenames, wordtype by wordtype
         idx = 0
         skipped_wordtypes = []
         logger.info(f"Creating dataset...")
-        for wordtype in tqdm(all_subfolders[:num_wordtypes], unit='wordtype'):
+
+        # skip any wordtypes from consideration if they do not have enough examples
+        logger.info(f"Skipping wordtypes that do not have enough examples...")
+        for wordtype in tqdm(all_subfolders, unit='wordtype'):
             all_wordtoken_files = os.listdir(os.path.join(data_path, wordtype))
-            if len(all_wordtoken_files) >= 2:
-                for wordtoken_file in all_wordtoken_files[:max_examples_per_wordtype]:
-                    filepath = os.path.join(data_path, wordtype, wordtoken_file)
-
-                    # assign data associated with this word token / index
-                    self.sizes.append(int(get_timesteps_from_filename(wordtoken_file)))
-                    self.fpaths.append(filepath)
-                    self.wordtype2indices[wordtype].add(idx)
-                    all_indices.append(idx)
-
-                    idx += 1
-            else:
+            if len(all_wordtoken_files) < min_examples_per_wordtype:
                 skipped_wordtypes.append(wordtype)
+        for w in skipped_wordtypes:
+            all_subfolders.remove(w)
+        logger.info(f"Did not include {len(skipped_wordtypes)} wordtypes because they have fewer than {min_examples_per_wordtype} examples.")
+
+        # calculate start and end wordtype indices depending on the dataset split/split subset
+        if split == "train":
+            start_wordtype_idx = 0
+            if num_wordtype_dirs < max_train_wordtypes + valid_unseen_wordtypes:
+                end_wordtype_idx = num_wordtype_dirs - valid_unseen_wordtypes
+            else:
+                end_wordtype_idx = max_train_examples_per_wordtype
+        elif split == "valid-seen":
+            start_wordtype_idx = 0
+            end_wordtype_idx = valid_seen_wordtypes
+        elif split == "valid-unseen":
+            start_wordtype_idx = -valid_unseen_wordtypes
+            end_wordtype_idx = None
+        else:
+            raise ValueError(f"'{split}' not a correct dataset split or dataset split subset.")
+
+        for wordtype in tqdm(all_subfolders[start_wordtype_idx:end_wordtype_idx], unit='wordtype'):
+            all_wordtoken_files = os.listdir(os.path.join(data_path, wordtype))
+            # if len(all_wordtoken_files) >= min_examples_per_wordtype:
+            all_wordtoken_files = sorted(all_wordtoken_files) # so that ordering is consistent
+            num_wordtoken_files = len(all_wordtoken_files)
+
+            # calculate start and end wordtoken indices depending on the dataset split/split subset
+            if split in ["train"]:
+                start_wordtoken_idx = 0
+                if num_wordtoken_files < max_train_examples_per_wordtype + valid_examples_per_wordtype:
+                    end_wordtoken_idx = num_wordtoken_files - valid_examples_per_wordtype
+                else:
+                    end_wordtoken_idx = max_train_examples_per_wordtype
+            elif split in ["valid-seen", "valid-unseen"]:
+                start_wordtoken_idx = -valid_examples_per_wordtype
+                end_wordtoken_idx = None
+            else:
+                raise ValueError(f"'{split}' not a correct dataset split or dataset split subset.")
+
+            for wordtoken_file in all_wordtoken_files[start_wordtoken_idx:end_wordtoken_idx]:
+                filepath = os.path.join(data_path, wordtype, wordtoken_file)
+
+                # assign data associated with this word token / index
+                self.sizes.append(int(get_timesteps_from_filename(wordtoken_file)))
+                self.fpaths.append(filepath)
+                self.wordtype2indices[wordtype].add(idx)
+                all_indices.append(idx)
+
+                idx += 1
+            # else:
+            #     skipped_wordtypes.append(wordtype)
 
         self.sizes = np.array(self.sizes, dtype=np.int64)
         # self.fpaths = pyarrow.array(self.fpaths)  # uncomment to increase performance using pyarrow
@@ -148,10 +227,12 @@ class WordAlignedAudioDataset(FairseqDataset):
 
         self.all_indices = set(all_indices)
 
-        logger.info(f"Finished creating word-aligned speech representations dataset containing {len(self.fpaths)} "
-                    "word tokens in total.")
-        logger.info(f"Did not include {len(skipped_wordtypes)} wordtypes because they only have 1 example. At least 2 "
-                    f"examples are required for triplet loss training.")
+        logger.info(f"Finished creating word-aligned speech representations {split} dataset containing {len(self.wordtype2indices)} wordtypes "
+                    f"and {len(self.fpaths)} word tokens in total.")
+
+        # print("YYY", split)
+        # for k in self.wordtype2indices.keys():
+        #     print("YYY", k, self.wordtype2indices[k])
 
     def __getitem__(self, anchor_index):
         positive_index = list(self.get_positive_indices(anchor_index, num_examples=1))[0]
@@ -221,6 +302,9 @@ class WordAlignedAudioDataset(FairseqDataset):
         positive_indices = torch.tensor([s["positive_index"] for s in samples], dtype=torch.long)
         negative_indices = torch.tensor([s["negative_index"] for s in samples], dtype=torch.long)
 
+        # get wordtypes just for anchor words
+        anchor_wordtypes = [self.index2wordtype(idx) for idx in anchor_indices]
+
         # get speech representation inputs
         anchor_ins = [s["anchor_in"] for s in samples]
         positive_ins = [s["positive_in"] for s in samples]
@@ -238,33 +322,65 @@ class WordAlignedAudioDataset(FairseqDataset):
 
         # create 0s tensor
         b_sz = 3 * len(samples)
-        max_len = torch.max(torch.cat([anchor_szs, positive_szs, negative_szs]))
+        max_len = torch.max(torch.cat([anchor_szs, positive_szs, negative_szs])).item()
         hid_dim = samples[0]["anchor_in"].size(1)
         collated_inputs = torch.zeros(b_sz, max_len, hid_dim)
+        lengths = torch.zeros(b_sz, dtype=torch.int64)
         padding_mask = torch.BoolTensor(b_sz, max_len).fill_(True)
-        # populate with data
-        for i, (anchor_in, positive_in, negative_in) in enumerate(zip(anchor_ins, positive_ins, negative_ins)):
-            collated_inputs[3 * i], anchor_len_diff = zeropad_to_len(anchor_in, max_len, hid_dim)
-            collated_inputs[3 * i + 1], positive_len_diff = zeropad_to_len(positive_in, max_len, hid_dim)
-            collated_inputs[3 * i + 2], negative_len_diff = zeropad_to_len(negative_in, max_len, hid_dim)
-            padding_mask[3 * i, -anchor_len_diff:] = False
-            padding_mask[3 * i + 1, -positive_len_diff:] = False
-            padding_mask[3 * i + 2, -negative_len_diff:] = False
 
-        print("end of loop")
+        # populate with data, group by anchors, positives, negatives
+        for i, anchor_in in enumerate(anchor_ins):
+            collated_inputs[i], anchor_len_diff = zeropad_to_len(anchor_in, max_len, hid_dim)
+            lengths[i] =  anchor_in.size(0)
+            padding_mask[i, -anchor_len_diff:] = False
+
+        for i, positive_in in enumerate(positive_ins):
+            i += len(samples)
+            collated_inputs[i], positive_len_diff = zeropad_to_len(positive_in, max_len, hid_dim)
+            lengths[i] =  positive_in.size(0)
+            padding_mask[i, -positive_len_diff:] = False
+
+        for i, negative_in in enumerate(negative_ins):
+            i += 2 * len(samples)
+            collated_inputs[i], negative_len_diff = zeropad_to_len(negative_in, max_len, hid_dim)
+            lengths[i] =  negative_in.size(0)
+            padding_mask[i, -negative_len_diff:] = False
+
+        # for i, (anchor_in, positive_in, negative_in) in enumerate(zip(anchor_ins, positive_ins, negative_ins)):
+        #     collated_inputs[3 * i], anchor_len_diff = zeropad_to_len(anchor_in, max_len, hid_dim)
+        #     collated_inputs[3 * i + 1], positive_len_diff = zeropad_to_len(positive_in, max_len, hid_dim)
+        #     collated_inputs[3 * i + 2], negative_len_diff = zeropad_to_len(negative_in, max_len, hid_dim)
+        #     lengths[3 * i] =  anchor_in.size(0)
+        #     lengths[3 * i + 1] = positive_in.size(0)
+        #     lengths[3 * i + 2] = negative_in.size(0)
+        #     padding_mask[3 * i, -anchor_len_diff:] = False
+        #     padding_mask[3 * i + 1, -positive_len_diff:] = False
+        #     padding_mask[3 * i + 2, -negative_len_diff:] = False
+
+        # for i, (anchor_in, positive_in, negative_in) in enumerate(zip(anchor_ins, positive_ins, negative_ins)):
+        #     collated_inputs[3 * i], anchor_len_diff = zeropad_to_len(anchor_in, max_len, hid_dim)
+        #     collated_inputs[3 * i + 1], positive_len_diff = zeropad_to_len(positive_in, max_len, hid_dim)
+        #     collated_inputs[3 * i + 2], negative_len_diff = zeropad_to_len(negative_in, max_len, hid_dim)
+        #     lengths[3 * i] =  anchor_in.size(0)
+        #     lengths[3 * i + 1] = positive_in.size(0)
+        #     lengths[3 * i + 2] = negative_in.size(0)
+        #     padding_mask[3 * i, -anchor_len_diff:] = False
+        #     padding_mask[3 * i + 1, -positive_len_diff:] = False
+        #     padding_mask[3 * i + 2, -negative_len_diff:] = False
 
         return {
-            "collated_inputs": collated_inputs,
-            "padding_mask": padding_mask,
-            # "anchor_indices": anchor_indices,
-            # "positive_indices": positive_indices,
-            # "negative_indices": negative_indices,
-            # "anchor_ins": anchor_ins,
-            # "positive_ins": positive_ins,
-            # "negative_ins": negative_ins,
-            # "anchor_szs": anchor_szs,
-            # "positive_szs": positive_szs,
-            # "negative_szs": negative_szs,
+            "anchor_indices": anchor_indices,
+            "positive_indices": positive_indices,
+            "negative_indices": negative_indices,
+            "anchor_wordtypes": anchor_wordtypes,
+            # "nsentences": len(samples),
+            # "ntokens": sum(len(s["source"]) for s in samples),
+            # "target": target,
+            "net_input": {
+                "src_tokens": collated_inputs,
+                "src_lengths": lengths,
+            },
+            "sample_size": lengths.sum().item(),
         }
 
     def num_tokens(self, index):
@@ -291,8 +407,8 @@ def test():
     data_path = '/home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/word_level/'
     dataset = WordAlignedAudioDataset(
         data_path,
-        num_wordtypes=100,
-        max_examples_per_wordtype=5,
+        max_train_wordtypes=100,
+        max_train_examples_per_wordtype=5,
     )
 
     # for i in range(len(dataset)):
