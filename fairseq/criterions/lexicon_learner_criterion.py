@@ -41,13 +41,19 @@ class LexiconLearnerCriterion(FairseqCriterion):
 
         # print("YYY", loss)
 
-        sample_size = sample['sample_size']
+        # sample_size = sample['sample_size']
+
+        b_sz = net_output["final_timestep_hidden"].size(0)
+        assert b_sz % 3 == 0
+        num_anchors = int(b_sz / 3)
+        sample_size = num_anchors
 
         logging_output = {
             "loss": loss.data,
+            "sample_size": sample_size,
             # "ntokens": sample["ntokens"],
             # "nsentences": sample["target"].size(0),
-            "sample_size": sample_size,
+            # "sample_size": sample_size,
             # "embeddings": anchors,
         }
         return loss, sample_size, logging_output
@@ -59,7 +65,13 @@ class LexiconLearnerCriterion(FairseqCriterion):
         num_anchors = int(b_sz / 3)
         anchor = net_output["final_timestep_hidden"][:num_anchors]
         positive = net_output["final_timestep_hidden"][num_anchors:2*num_anchors]
-        negative= net_output["final_timestep_hidden"][2*num_anchors:]
+        negative = net_output["final_timestep_hidden"][2*num_anchors:]
+
+        # print("anchor", anchor)
+        #
+        # print("positive", positive)
+        #
+        # print("negative", negative)
 
         loss = F.triplet_margin_loss(
             anchor,
@@ -67,6 +79,9 @@ class LexiconLearnerCriterion(FairseqCriterion):
             negative,
             reduction="sum" if reduce else "none",
         )
+
+        # print("loss", loss)
+
         return loss
 
     @staticmethod
@@ -77,9 +92,13 @@ class LexiconLearnerCriterion(FairseqCriterion):
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         sample_size = sum(log.get("sample_size", 0) for log in logging_outputs)
 
+        # print("inside reduce_metrics()", loss_sum, sample_size)
+
         # we divide by log(2) to convert the loss from base e to base 2
         metrics.log_scalar(
-            "loss", loss_sum / sample_size / math.log(2), sample_size, round=3
+            # "loss", loss_sum / sample_size / math.log(2), sample_size, round=3
+            # "loss", loss_sum / sample_size, sample_size, round=3,
+            "loss", loss_sum / sample_size, sample_size
         )
         metrics.log_scalar("sample_size", sample_size)
 

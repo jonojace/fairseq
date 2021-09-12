@@ -40,9 +40,9 @@ def random_sampling(a_list, num_samples):
         return random.sample(a_list, num_samples)
 
 
-def zeropad_to_len(t, targ_len, hid_dim):
+def zeropad_to_len(t, targ_len):
     len_diff = targ_len - t.size(0)
-    return torch.cat([t, t.new_zeros(len_diff, hid_dim)]), len_diff
+    return torch.cat([t, t.new_zeros(len_diff, t.size(1))]), len_diff
 
 
 
@@ -95,6 +95,7 @@ class WordAlignedAudioDataset(FairseqDataset):
             self,
             data_path,
             split,
+            save_dir,
             max_train_wordtypes=None, # leave as None to use as many wordtypes as possible for training
             max_train_examples_per_wordtype=None, # leave as None to use all examples for each wordtype
             min_train_examples_per_wordtype=2,
@@ -215,8 +216,8 @@ class WordAlignedAudioDataset(FairseqDataset):
 
                 wordtype_to_incl_idx += 1
 
-        self.sizes = np.array(self.sizes, dtype=np.int64)
-        # self.fpaths = pyarrow.array(self.fpaths)  # uncomment to increase performance using pyarrow
+
+
 
         # Sanity checks
         assert all_indices == list(range(len(self.fpaths)))
@@ -225,10 +226,19 @@ class WordAlignedAudioDataset(FairseqDataset):
         assert len(self.sizes) == len(self.fpaths) == sum(
             len(v) for v in self.wordtype2indices.values()) == wordtype_to_incl_idx, assert_msg
 
+        # Assign object params
+        self.sizes = np.array(self.sizes, dtype=np.int64)
         self.all_indices = set(all_indices)
+        # self.fpaths = pyarrow.array(self.fpaths)  # uncomment to increase performance using pyarrow
 
+        # Print/save important information and stats about this dataset
         logger.info(f"Finished creating word-aligned speech representations {split} dataset containing {len(self.wordtype2indices)} wordtypes "
                     f"and {len(self.fpaths)} word tokens in total.")
+        if split in ["valid-seen", "valid-unseen"]:
+            logger.info(f"{split} wordtypes are: {' '.join(self.wordtype2indices.keys())}")
+        self.save_wordtypes_to_disk(os.path.join(save_dir, f'{split}_{len(self.wordtype2indices.keys())}_wordtypes.csv'))
+
+
 
     def __getitem__(self, anchor_index):
         positive_index = list(self.get_positive_indices(anchor_index, num_examples=1))[0]
@@ -249,6 +259,8 @@ class WordAlignedAudioDataset(FairseqDataset):
 
     def __len__(self):
         return len(self.fpaths)
+
+
 
     def index2wordtype(self, index):
         filepath = self.fpaths[index]
@@ -326,19 +338,19 @@ class WordAlignedAudioDataset(FairseqDataset):
 
         # populate with data, group by anchors, positives, negatives
         for i, anchor_in in enumerate(anchor_ins):
-            collated_inputs[i], anchor_len_diff = zeropad_to_len(anchor_in, max_len, hid_dim)
+            collated_inputs[i], anchor_len_diff = zeropad_to_len(anchor_in, max_len)
             lengths[i] =  anchor_in.size(0)
             padding_mask[i, -anchor_len_diff:] = False
 
         for i, positive_in in enumerate(positive_ins):
             i += len(samples)
-            collated_inputs[i], positive_len_diff = zeropad_to_len(positive_in, max_len, hid_dim)
+            collated_inputs[i], positive_len_diff = zeropad_to_len(positive_in, max_len)
             lengths[i] =  positive_in.size(0)
             padding_mask[i, -positive_len_diff:] = False
 
         for i, negative_in in enumerate(negative_ins):
             i += 2 * len(samples)
-            collated_inputs[i], negative_len_diff = zeropad_to_len(negative_in, max_len, hid_dim)
+            collated_inputs[i], negative_len_diff = zeropad_to_len(negative_in, max_len)
             lengths[i] =  negative_in.size(0)
             padding_mask[i, -negative_len_diff:] = False
 
@@ -393,7 +405,12 @@ class WordAlignedAudioDataset(FairseqDataset):
         """Return an ordered list of indices. Batches will be constructed based
         on this order."""
         return np.arange(len(self), dtype=np.int64)
-
+    
+    def save_wordtypes_to_disk(self, save_path):
+        """Save wordtypes in this datasplit to disk"""
+        with open(save_path, 'w') as f:
+            f.write(','.join(self.wordtype2indices.keys()))
+        logger.info(f"Successfully saved wordtypes to '{save_path}'")
 
 def test():
     logging.basicConfig(format="[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s")

@@ -14,6 +14,8 @@ import torch
 class LearnLexiconConfig(FairseqDataclass):
     data: str = field(default=MISSING, metadata={"help": "path to data directory"})
 
+    save_dir: str = field(default=MISSING, metadata={"help": "path to checkpoint directory"})
+
     max_train_wordtypes: Optional[int] = field(
         default=None, metadata={"help": "number of word types to learn lexicon with"}
     )
@@ -60,14 +62,20 @@ class LearnLexiconTask(FairseqTask):
         return cls(cfg)
 
     def load_dataset(self, split: str, task_cfg: FairseqDataclass = None, **kwargs):
-        data_path = self.cfg.data
         task_cfg = task_cfg or self.cfg
 
+        # print("XXX", task_cfg)
+
         self.datasets[split] = WordAlignedAudioDataset(
-            data_path,
+            data_path=self.cfg.data,
             split=split,
+            save_dir=self.cfg.save_dir,
             max_train_wordtypes=task_cfg.max_train_wordtypes,
             max_train_examples_per_wordtype=task_cfg.max_train_examples_per_wordtype,
+            min_train_examples_per_wordtype=task_cfg.min_train_examples_per_wordtype,
+            valid_seen_wordtypes=task_cfg.valid_seen_wordtypes,
+            valid_unseen_wordtypes=task_cfg.valid_unseen_wordtypes,
+            valid_examples_per_wordtype=task_cfg.valid_examples_per_wordtype,
         )
 
     # def valid_step(self, sample, model, criterion):

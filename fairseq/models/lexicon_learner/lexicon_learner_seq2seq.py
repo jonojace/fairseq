@@ -14,23 +14,29 @@ from fairseq.modules import (
 """
 Commands for debugging training of this model:
 
+MODEL_NAME=debug_seq2seq_ALL
 DATA=/home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/word_level/
-TB_LOG_DIR=/home/s1785140/fairseq/tensorboard_logs/
 fairseq-train $DATA \
-    --tensorboard-logdir $TB_LOG_DIR \
+    --tensorboard-logdir tb_logs/$MODEL_NAME \
     --task learn_lexicon \
-    --arch lexicon_learner \
+    --arch lexicon_learner_seq2seq \
     --criterion lexicon_learner \
     --optimizer adam \
-    --batch-size 2 \
-    --max-num-wordtypes 50 \
-    --max-train-examples-per-wordtype 50 \
-    --max-epoch 5 \
+    --batch-size 4 \
+    --min-train-examples-per-wordtype 10 \
+    --max-train-examples-per-wordtype 10 \
+    --valid-seen-wordtypes 100 \
+    --valid-unseen-wordtypes 100 \
+    --valid-examples-per-wordtype 10 \
+    --valid-subset valid-seen,valid-unseen \
+    --save-dir checkpoints/$MODEL_NAME \
+    --save-interval 1 --max-epoch 3 \
+    --lr 0.0001 \
     --no-save
 """
 
 @dataclass
-class LexiconLearnerConfig(FairseqDataclass):
+class LexiconLearnerSeq2SeqConfig(FairseqDataclass):
     ##############
     # Data
     input_dim: int = field(
@@ -60,16 +66,16 @@ class LexiconLearnerConfig(FairseqDataclass):
     # Decoder
 
 
-@register_model("lexicon_learner", dataclass=LexiconLearnerConfig)
-class LexiconLearner(BaseFairseqModel):
-    def __init__(self, cfg: LexiconLearnerConfig):
+@register_model("lexicon_learner_seq2seq", dataclass=LexiconLearnerSeq2SeqConfig)
+class LexiconLearnerSeq2Seq(BaseFairseqModel):
+    def __init__(self, cfg: LexiconLearnerSeq2SeqConfig):
         super().__init__()
         self.cfg = cfg
 
         self.encoder = LSTMEncoder(cfg)
 
     @classmethod
-    def build_model(cls, cfg: LexiconLearnerConfig, task=None):
+    def build_model(cls, cfg: LexiconLearnerSeq2SeqConfig, task=None):
         """Build a new model instance."""
 
         return cls(cfg)
