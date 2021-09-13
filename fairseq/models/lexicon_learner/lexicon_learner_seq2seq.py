@@ -4,11 +4,12 @@ from dataclasses import dataclass, field
 from fairseq.dataclass import FairseqDataclass
 from fairseq.models import (
     BaseFairseqModel,
-    FairseqEncoder,
     register_model,
 )
-from fairseq.modules import (
-    TransformerEncoderLayer,
+from typing import Any, Dict, List, Optional, Tuple
+from fairseq.models.lexicon_learner.audio_transformers import (
+    TransformerEncoder,
+    TransformerDecoder,
 )
 
 """
@@ -72,30 +73,15 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
         super().__init__()
         self.cfg = cfg
 
-        self.encoder = LSTMEncoder(cfg)
-
-    @classmethod
-    def build_model(cls, cfg: LexiconLearnerSeq2SeqConfig, task=None):
-        """Build a new model instance."""
-
-        return cls(cfg)
-
-    def forward(self, src_tokens, src_lengths):
-        src_tokens = self.encoder(src_tokens, src_lengths)
-        return src_tokens
-
-
-class LSTMEncoder(FairseqEncoder):
-
-    def __init__(self, cfg):
-        super().__init__(None)
-
-        self.cfg = cfg
-
         self.dropout_in = nn.Dropout(p=cfg.enc_dropout_in)
         self.dropout_out = nn.Dropout(p=cfg.enc_dropout_out)
 
-        self.lstm = nn.LSTM(
+        self.encoder = TransformerEncoder(cfg)
+        self.decoder = TransformerDecoder(cfg)
+
+        self.output_projection = nn.Linear(cfg.enc_hid_dim, cfg.enc_out_dim)
+
+        self.summariser = nn.LSTM(
             input_size=cfg.input_dim, #TODO make input dim dynamic depending on detected dimensions
             hidden_size=cfg.enc_hid_dim,
             num_layers=cfg.enc_num_layers,
@@ -104,46 +90,41 @@ class LSTMEncoder(FairseqEncoder):
             batch_first=True,
         )
 
-        self.output_projection = nn.Linear(cfg.enc_hid_dim, cfg.enc_out_dim)
 
-    def forward(
-            self,
-            src_tokens,
-            src_lengths,
-    ):
-        layer_to_return = 1 # TODO make this a cfg setting?
+    @classmethod
+    def build_model(cls, cfg: LexiconLearnerSeq2SeqConfig, task=None):
+        """Build a new model instance."""
 
-        src_tokens = self.dropout_in(src_tokens)
+        return cls(cfg)
 
-        # Pack the sequence into a PackedSequence object to feed to the LSTM.
-        packed_x = nn.utils.rnn.pack_padded_sequence(
-            src_tokens,
-            src_lengths.cpu(),
-            batch_first=True,
-            enforce_sorted=False, # TODO could have bad side effects? to perf?
+    def forward(self,
+                src_tokens,
+                src_lengths,
+                return_all_hiddens: bool = True,
+                features_only: bool = False,
+                alignment_layer: Optional[int] = None,
+                alignment_heads: Optional[int] = None,
+                ):
+
+        encoder_out = self.encoder(
+            src_tokens, src_lengths=src_lengths, return_all_hiddens=return_all_hiddens
         )
+        # NOTE no prev_output_tokens since we do not have ground truth targets for teaching forcing
+        # NOTE instead we set it to all 0's, and thus decoder only takes encoder_out as conditioning info
+        # NOTE OR 1's where we want to make a prediction, and 0 where we do not want to make a prediction
+        # NOTE (i.e. > # of graphemes)
+        prev_output_tokens = 0
+        decoder_out = self.decoder(
+            prev_output_tokens,
+            encoder_out=encoder_out,
+            src_lengths=src_lengths,
+            features_only=features_only,
+            alignment_layer=alignment_layer,
+            alignment_heads=alignment_heads,
+            return_all_hiddens=return_all_hiddens,
+        )
+        summary = self.summariser(decoder_out)
 
-        # Get the output from the LSTM.
-        _packed_outputs, (final_timestep_hidden, _final_timestep_cell) = self.lstm(packed_x)
-
-        # NB No need to unpack and then pad this packed seq as we simply need "final timestep hidden",
-        # We do not need all timesteps which are returned in "_packed_outputs"
-
-
-        if self.cfg.enc_num_layers > 1:
-            # Only return from one layer of the LSTM
-            final_timestep_hidden = final_timestep_hidden.squeeze(0)[layer_to_return,:,:]
-        else:
-            final_timestep_hidden = final_timestep_hidden.squeeze(0)
-
-
-        final_timestep_hidden = self.dropout_out(final_timestep_hidden)
-
-        final_timestep_hidden = self.output_projection(final_timestep_hidden)
-
-        # print("XXX", final_timestep_hidden)
-
-        return {
-            # this will have shape `(bsz, hidden_dim)`
-            'final_timestep_hidden': final_timestep_hidden,
-        }
+        # decoder_out: tokens that represent pronunciations
+        # summary: single timestep summary of pronunciations used to calculate triplet loss
+        return decoder_out, summary
