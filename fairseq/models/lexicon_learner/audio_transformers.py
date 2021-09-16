@@ -53,7 +53,7 @@ class TransformerEncoder(FairseqEncoder):
 
     def __init__(self, args, dictionary, embed_tokens):
         self.args = args
-        # super().__init__(dictionary)
+        super().__init__(dictionary)
         self.register_buffer("version", torch.Tensor([3]))
 
         self.dropout_module = FairseqDropout(
@@ -61,14 +61,11 @@ class TransformerEncoder(FairseqEncoder):
         )
         self.encoder_layerdrop = args.encoder_layerdrop
 
-        # embed_dim = embed_tokens.embedding_dim
-        # self.padding_idx = embed_tokens.padding_idx
-        self.padding_value = -float('inf')
+        embed_dim = embed_tokens.embedding_dim
+        self.padding_idx = embed_tokens.padding_idx
         self.max_source_positions = args.max_source_positions
 
-        # self.embed_tokens = embed_tokens
-
-        embed_dim = args.embedding_dim # the hid_dim in this transformer model???
+        self.embed_tokens = embed_tokens
 
         self.embed_scale = 1.0 if args.no_scale_embedding else math.sqrt(embed_dim)
 
@@ -212,19 +209,10 @@ class TransformerEncoder(FairseqEncoder):
                   Only populated if *return_all_hiddens* is True.
         """
         # compute padding mask
-        # since input is continuous we check if src_tokens has any values that are equal to padding value (-inf)
-        # encoder_padding_mask = src_tokens.eq(self.padding_idx)
-        encoder_padding_mask = src_tokens.eq(self.padding_value)
+        encoder_padding_mask = src_tokens.eq(self.padding_idx)
         has_pads = src_tokens.device.type == "xla" or encoder_padding_mask.any()
 
-        # this function:
-        #   * uses word-piece ids (src_tokens) to lookup precomputed embeddings (token_embeddings)
-        #   * adds positional embeddings
-        #   * adds other things like layer norm
-        # in audio work src_tokens are continuous and not discrete, we do not want to lookup precomputed embeddings!
-        # so therefore pass None for token_embeddings
-        # x, encoder_embedding = self.forward_embedding(src_tokens, token_embeddings)
-        x, encoder_embedding = self.forward_embedding(src_tokens)
+        x, encoder_embedding = self.forward_embedding(src_tokens, token_embeddings)
 
         # account for padding while computing the representation
         if has_pads:
@@ -254,8 +242,7 @@ class TransformerEncoder(FairseqEncoder):
         # `forward` so we use a dictionary instead.
         # TorchScript does not support mixed values so the values are all lists.
         # The empty list is equivalent to None.
-        # src_lengths = src_tokens.ne(self.padding_idx).sum(dim=1, dtype=torch.int32).reshape(-1, 1).contiguous()
-        src_lengths = src_tokens.ne(self.padding_value).sum(dim=1, dtype=torch.int32).reshape(-1, 1).contiguous()
+        src_lengths = src_tokens.ne(self.padding_idx).sum(dim=1, dtype=torch.int32).reshape(-1, 1).contiguous()
         return {
             "encoder_out": [x],  # T x B x C
             "encoder_padding_mask": [encoder_padding_mask],  # B x T
@@ -385,7 +372,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         self.embed_dim = embed_dim
         self.output_embed_dim = args.decoder_output_dim
 
-        # self.padding_idx = embed_tokens.padding_idx
+        self.padding_idx = embed_tokens.padding_idx
         self.max_target_positions = args.max_target_positions
 
         self.embed_tokens = embed_tokens

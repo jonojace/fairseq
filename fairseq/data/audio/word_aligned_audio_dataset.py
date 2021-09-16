@@ -96,6 +96,7 @@ class WordAlignedAudioDataset(FairseqDataset):
             data_path,
             split,
             save_dir,
+            cache_all_data=True, # warning doing so with large datasets could lead to OOM!
             max_train_wordtypes=None, # leave as None to use as many wordtypes as possible for training
             max_train_examples_per_wordtype=None, # leave as None to use all examples for each wordtype
             min_train_examples_per_wordtype=2,
@@ -132,9 +133,10 @@ class WordAlignedAudioDataset(FairseqDataset):
 
         ################################################################################################################
         ### Open main data folder and load word-aligned speech reps for all words in the vocab
-        self.fpaths = []
+        self.examples = [] # each example is a filepath to some reps, or the representations themselves
         self.sizes = []
         all_indices = []
+        self.cache_all_data = cache_all_data
 
         # create a mapping between a wordtype and a list of positive examples of that wordtype
         # this data structure is used to quickly find positive and negative examples for a particular word token
@@ -210,30 +212,34 @@ class WordAlignedAudioDataset(FairseqDataset):
 
                 # assign data associated with this word token / index
                 self.sizes.append(int(get_timesteps_from_filename(wordtoken_file)))
-                self.fpaths.append(filepath)
+                self.examples.append(filepath)
                 self.wordtype2indices[wordtype].add(wordtype_to_incl_idx)
                 all_indices.append(wordtype_to_incl_idx)
 
                 wordtype_to_incl_idx += 1
 
-
-
+        # cache all data in order to avoid accessing disk (locally or network) during training
+        if self.cache_all_data:
+            examples = []
+            for fp in self.examples:
+                examples.append(torch.load(fp))
+            self.examples = examples
 
         # Sanity checks
-        assert all_indices == list(range(len(self.fpaths)))
-        assert_msg = f"len(self.sizes)=={len(self.sizes)}, len(self.fnames)=={len(self.fpaths)}, sum(len(v) for v in " \
+        assert all_indices == list(range(len(self.examples)))
+        assert_msg = f"len(self.sizes)=={len(self.sizes)}, len(self.fnames)=={len(self.examples)}, sum(len(v) for v in " \
                      f"self.wordtype2indices.values())=={sum(len(v) for v in self.wordtype2indices.values())}, idx + 1=={wordtype_to_incl_idx} "
-        assert len(self.sizes) == len(self.fpaths) == sum(
+        assert len(self.sizes) == len(self.examples) == sum(
             len(v) for v in self.wordtype2indices.values()) == wordtype_to_incl_idx, assert_msg
 
         # Assign object params
         self.sizes = np.array(self.sizes, dtype=np.int64)
         self.all_indices = set(all_indices)
-        # self.fpaths = pyarrow.array(self.fpaths)  # uncomment to increase performance using pyarrow
+        # self.examples = pyarrow.array(self.examples)  # uncomment to increase performance using pyarrow
 
         # Print/save important information and stats about this dataset
         logger.info(f"Finished creating word-aligned speech representations {split} dataset containing {len(self.wordtype2indices)} wordtypes "
-                    f"and {len(self.fpaths)} word tokens in total.")
+                    f"and {len(self.examples)} word tokens in total.")
         if split in ["valid-seen", "valid-unseen"]:
             logger.info(f"{split} wordtypes are: {' '.join(self.wordtype2indices.keys())}")
         self.save_wordtypes_to_disk(os.path.join(save_dir, f'{split}_{len(self.wordtype2indices.keys())}_wordtypes.csv'))
@@ -244,9 +250,14 @@ class WordAlignedAudioDataset(FairseqDataset):
         positive_index = list(self.get_positive_indices(anchor_index, num_examples=1))[0]
         negative_index = list(self.get_negative_indices(anchor_index, num_examples=1))[0]
 
-        anchor_in = torch.load(self.fpaths[anchor_index])
-        positive_in = torch.load(self.fpaths[positive_index])
-        negative_in = torch.load(self.fpaths[negative_index])
+        if self.cache_all_data:
+            anchor_in = self.examples[anchor_index]
+            positive_in = self.examples[positive_index]
+            negative_in = self.examples[negative_index]
+        else:
+            anchor_in = torch.load(self.examples[anchor_index])
+            positive_in = torch.load(self.examples[positive_index])
+            negative_in = torch.load(self.examples[negative_index])
 
         return {
             "anchor_index": anchor_index,
@@ -258,12 +269,12 @@ class WordAlignedAudioDataset(FairseqDataset):
         }
 
     def __len__(self):
-        return len(self.fpaths)
+        return len(self.examples)
 
 
 
     def index2wordtype(self, index):
-        filepath = self.fpaths[index]
+        filepath = self.examples[index]
         wordtype = filepath.split('/')[-2]
         return wordtype
 

@@ -11,6 +11,8 @@ from fairseq.models.lexicon_learner.audio_transformers import (
     TransformerEncoder,
     TransformerDecoder,
 )
+from fairseq import utils
+import joblib
 
 """
 Commands for debugging training of this model:
@@ -39,9 +41,13 @@ fairseq-train $DATA \
 @dataclass
 class LexiconLearnerSeq2SeqConfig(FairseqDataclass):
     ##############
-    # Data
-    input_dim: int = field(
-        default=1024, metadata={"help": "dimension of input features"}
+    # TODO remove this as an argument and dynamically set it dependent on the input features automatically?
+    encoder_input_dim: int = field(
+        default=768, metadata={"help": "dimension of input speech features / dim of embedding table for discrete reps such as hubert. Defaults are 1024 for wav2vec2, 768 for hubert."}
+    )
+    encoder_embed_path: str = field(
+        default="/home/s1785140/fairseq/examples/lexicon_learner/embeddings/hubert_km100.bin",
+        metadata={"help": "filepath to embedding table (i.e. hubert k-means cluster centroid vectors)"}
     )
 
     ##############
@@ -69,20 +75,33 @@ class LexiconLearnerSeq2SeqConfig(FairseqDataclass):
 
 @register_model("lexicon_learner_seq2seq", dataclass=LexiconLearnerSeq2SeqConfig)
 class LexiconLearnerSeq2Seq(BaseFairseqModel):
-    def __init__(self, cfg: LexiconLearnerSeq2SeqConfig):
+    """
+    Inputs are discrete tokens that are looked up via an embedding table
+    (because default transformers req discrete inputs)
+
+    Outputs are either continous or discrete
+    """
+    def __init__(
+            self,
+            cfg: LexiconLearnerSeq2SeqConfig,
+            task,
+            encoder_embed_tokens,
+    ):
         super().__init__()
         self.cfg = cfg
+        self.task = task
 
         self.dropout_in = nn.Dropout(p=cfg.enc_dropout_in)
         self.dropout_out = nn.Dropout(p=cfg.enc_dropout_out)
 
-        self.encoder = TransformerEncoder(cfg)
-        self.decoder = TransformerDecoder(cfg)
+        # TODO pass a separate transformerencoder/decoder cfg (Namespace) to these object instantiations
+        self.encoder = TransformerEncoder(cfg, task.src_dict, encoder_embed_tokens)
+        self.decoder = TransformerDecoder(cfg, None, None) # TODO modify TransformerDecoder since no target dict?
 
         self.output_projection = nn.Linear(cfg.enc_hid_dim, cfg.enc_out_dim)
 
         self.summariser = nn.LSTM(
-            input_size=cfg.input_dim, #TODO make input dim dynamic depending on detected dimensions
+            input_size=cfg.encoder_input_dim, #TODO make input dim dynamic depending on detected dimensions
             hidden_size=cfg.enc_hid_dim,
             num_layers=cfg.enc_num_layers,
             dropout=cfg.enc_dropout_out,
@@ -95,7 +114,46 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
     def build_model(cls, cfg: LexiconLearnerSeq2SeqConfig, task=None):
         """Build a new model instance."""
 
-        return cls(cfg)
+        encoder_embed_tokens = cls.build_embedding(
+            task.src_dict, cfg.encoder_input_dim, cfg.encoder_embed_path
+        )
+
+        return cls(cfg, task, encoder_embed_tokens)
+
+    @classmethod
+    def build_embedding(cls, dictionary, embed_dim, path):
+        """
+        load embedding table
+        for discretised speech reps such as hubert
+        each hubert code looks up a cluster centroid (an embedding)
+        """
+        num_embeddings = len(dictionary)
+        padding_idx = dictionary.pad()
+
+        # load blank embedding table
+        emb = Embedding(num_embeddings, embed_dim, padding_idx)
+
+        # load pretrained embeddings
+        # key=token, val=embedding
+        # kmeans_model_path = '/home/s1785140/fairseq/examples/lexicon_learner/embeddings/hubert_km100.bin'
+        kmeans_model = joblib.load(open(path, "rb"))  # this is just a sklearn model
+        centroids = torch.Tensor(kmeans_model.cluster_centers_)
+
+        # print(type(centroids))
+        # print(len(centroids))
+        # print(centroids.shape)
+        assert centroids.shape[0] + 1 == num_embeddings # +1 because hubert centroids do not include padding symbol
+        assert centroids.shape[1] == embed_dim
+
+        # fill embedding table with pretrained embeddings
+        assert padding_idx == 0
+        for idx in range(1, len(dictionary)): # iterate over non-padding indices
+            emb.weight.data[idx] = centroids[idx-1]
+
+        # embed_dict = utils.parse_embedding(path)
+        # utils.load_embedding(embed_dict, dictionary, emb)
+
+        return emb
 
     def forward(self,
                 src_tokens,
@@ -128,3 +186,9 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
         # decoder_out: tokens that represent pronunciations
         # summary: single timestep summary of pronunciations used to calculate triplet loss
         return decoder_out, summary
+
+def Embedding(num_embeddings, embedding_dim, padding_idx):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+    nn.init.constant_(m.weight[padding_idx], 0)
+    return m

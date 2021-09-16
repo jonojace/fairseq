@@ -21,8 +21,28 @@ with the following structure:
     <wordtype>_<utt id>_<numbered occurrence in the utterance>.pt
 
 Example usage:
+    #hubert w/ padding offset
     cd ~/fairseq
     python examples/lexicon_learner/wordalign_speechreps.py \
+        -t hubert \
+        --account_for_padding_idx True \
+        -s /home/s1785140/fairseq/examples/lexicon_learner/lj_speech_quantized.txt \
+        -a /home/s1785140/data/ljspeech_MFA_alignments \
+        -o /home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level_with_padding_idx_offset
+
+    #hubert w/o padding offset
+    cd ~/fairseq
+    python examples/lexicon_learner/wordalign_speechreps.py \
+        -t hubert \
+        --account_for_padding_idx False \
+        -s /home/s1785140/fairseq/examples/lexicon_learner/lj_speech_quantized.txt \
+        -a /home/s1785140/data/ljspeech_MFA_alignments \
+        -o /home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level
+
+    #wav2vec2
+    cd ~/fairseq
+    python examples/lexicon_learner/wordalign_speechreps.py \
+        -t wav2vec2 \
         -s /home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/utt_level \
         -a /home/s1785140/data/ljspeech_MFA_alignments \
         -o /home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/word_level
@@ -36,8 +56,12 @@ from tqdm import tqdm
 from collections import Counter
 
 parser = argparse.ArgumentParser()
+parser.add_argument('-t', '--type', type=str, default='hubert',
+                    help='type of input speech reps that we are using, i.e. hubert wav2vec2 etc.')
+parser.add_argument('--account_for_padding_idx', type=bool, default=True,
+                    help='add 1 to token id of discrete reps in order to allow for padding_idx==0')
 parser.add_argument('-s', '--speech_reps', type=str, required=True,
-                    help='path to single non-nested folder containing speech representations (.pt files)')
+                    help='path to single non-nested folder containing speech representations (.pt files) or txt file (hubert)')
 parser.add_argument('-a', '--alignments', type=str, required=True,
                     help='path to single non-nested folder containing MFA alignments (.TextGrid files)')
 parser.add_argument('-o', '--output_directory', type=str, required=True,
@@ -50,39 +74,62 @@ def get_wordlevel_reprs(repr, word):
     extract subsequence of 'repr' that corresponds to a particular word
     function expects input to be of dimension 2: (timesteps, hidden_size)
     """
-
-    assert repr.dim() == 2
-
     start_fraction = word['start'] / word['utt_dur']
     end_fraction = word['end'] / word['utt_dur']
     timesteps = repr.size(0)
     start_idx = round(start_fraction * timesteps)
     end_idx = round(end_fraction * timesteps)
+    return repr[start_idx:end_idx]
 
-    return repr[start_idx:end_idx, :]
+
 
 TO_IGNORE = ['SIL', '<unk>']
 
-# sanity check
-assert len(os.listdir(args.speech_reps)) == len(os.listdir(args.alignments))
+if args.type == "hubert":
+    with open(args.speech_reps, 'r') as f:
+        lines = f.readlines()
+    num_of_utts = len(lines)
+    utt_id2speechreps = {l.split('|')[0]:l.split('|')[1] for l in lines}
+    utt_ids = sorted(utt_id2speechreps.keys()) # ensure we always process utts in same alphabetical order
+elif args.type == "wav2vec2":
+    num_of_utts = len(os.listdir(args.speech_reps))
+    utt_ids = sorted(file.split('.')[0] for file in os.listdir(args.speech_reps))
+else:
+    raise ValueError
 
-# ensure we always process utts in same alphabetical order
-utt_ids = sorted(file.split('.')[0] for file in os.listdir(args.speech_reps))
+# sanity check
+assert num_of_utts == len(os.listdir(args.alignments))
 
 # split each speech reps file using the word-level alignments
 for utt_id in tqdm(utt_ids):
-    # load speech reps from disk
-    reps = torch.load(f"{args.speech_reps}/{utt_id}.pt")
-    reps.requires_grad = False
+    # load speech reps
+    if args.type == "hubert":
+        reps = utt_id2speechreps[utt_id]
+        token_offset_for_padding = (1 if args.account_for_padding_idx else 0)
+        reps = [int(s)+token_offset_for_padding for s in reps.split(' ')] # NOTE add 1 to each index so that 0 is available as a padding_idx
+        reps = torch.Tensor(reps)
+        reps.requires_grad = False
+        print("utt_id", utt_id, "size", reps.size())
 
-    # check dimensions and change them if necessary
-    if reps.dim() == 3:
-        # we assume (batch, timesteps, hidden_size)
-        reps = reps.squeeze(0)  # squeeze away batch dimension
-    elif reps.dim() == 2:
-        pass  # all is good!
+        # check dimensions
+        if reps.dim() == 1:
+            pass
+        else:
+            raise ValueError("speech representations have an incorrect number of dimensions")
+    elif args.type == "wav2vec2":
+        reps = torch.load(f"{args.speech_reps}/{utt_id}.pt")
+        reps.requires_grad = False
+
+        # check dimensions and change them if necessary
+        if reps.dim() == 3:
+            # we assume (batch, timesteps, hidden_size)
+            reps = reps.squeeze(0)  # squeeze away batch dimension
+        elif reps.dim() == 2:
+            pass  # all is good!
+        else:
+            raise ValueError("speech representations have an incorrect number of dimensions")
     else:
-        raise ValueError("speech representations have an incorrect number of dimensions")
+        raise ValueError
 
     # load alignments from disk
     _phones_align, words_align = process_textgrid(textgrid_path=f"{args.alignments}/{utt_id}.TextGrid")
@@ -97,14 +144,17 @@ for utt_id in tqdm(utt_ids):
         if wordtype in TO_IGNORE:
             pass
         else:
-            # perform word-level splitting of speech reps
             word_occ_in_utt_counter[wordtype] += 1
+
+            # perform word-level splitting of speech reps
             word_reps = get_wordlevel_reprs(reps, word_align)
+
             # create filepath for saving to disk
             # format is: data_path/<wordtype>/<wordtype>_<utt id>_<numbered occurrence in the utterance>.pt
             save_folder = os.path.join(args.output_directory, wordtype)
             os.makedirs(save_folder, exist_ok=True)
             save_path = os.path.join(save_folder, f'{wordtype}__{utt_id}__occ{word_occ_in_utt_counter[wordtype]}__len{word_reps.size(0)}.pt')
+
             # save to disk
             torch.save(word_reps, save_path)
 

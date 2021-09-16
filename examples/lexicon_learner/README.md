@@ -21,6 +21,54 @@ pip install pyarrow
 
 # Setup data speech reps
 
+1) obtain discretised speech reps
+https://github.com/pytorch/fairseq/tree/master/examples/textless_nlp/gslm/speech2unit
+either 
+a) generate yourself:
+```bash
+# convert LJSpeech to 16khz 
+
+# create manifests file (look at lj_speech_manifest.txt for an example)
+# top line should be path to the folder containing the wav files
+
+#download checkpoints
+#hubert: https://dl.fbaipublicfiles.com/hubert/hubert_base_ls960.pt
+#k-means clusters: https://dl.fbaipublicfiles.com/textless_nlp/gslm/hubert/km100/km.bin
+
+# run speech reps model and quantisation
+TYPE=hubert
+KM_MODEL_PATH=../../fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km100/hubert_km100.bin
+ACSTC_MODEL_PATH=../../fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/hubert_base_ls960.pt
+LAYER=6
+MANIFEST=filelists/voice_conversion_test.txt
+OUT_QUANTIZED_FILE=speech2unit_output/quantized/voice_conversion_test_quantized.txt
+EXTENSION=".wav"
+
+CUDA_VISIBLE_DEVICES=9 python ../../fairseq/examples/textless_nlp/gslm/speech2unit/clustering/quantize_with_kmeans.py \
+    --feature_type $TYPE \
+    --kmeans_model_path $KM_MODEL_PATH \
+    --acoustic_model_path $ACSTC_MODEL_PATH \
+    --layer $LAYER \
+    --manifest_path $MANIFEST \
+    --out_quantized_file_path $OUT_QUANTIZED_FILE \
+    --extension $EXTENSION
+```
+b) or use precomputed ones: fairseq/fairseq/models/lexicon_learner/lj_speech_quantized.txt
+
+2) align speech reps at the word level using mfa 
+run ipynb script
+
+3) get lookup table (also look at fairseq/examples/lexicon_learner/get_hubert_lookup_table.py)
+```python 
+import joblib
+kmeans_model_path = '../../fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km100/km.bin'
+kmeans_model = joblib.load(open(kmeans_model_path, "rb")) # this is just a sklearn model
+centroids = kmeans_model.cluster_centers_
+```
+
+
+
+
 # install reqs
 
 # Train model
@@ -36,7 +84,33 @@ fairseq-train $DATA \
     --max-examples-per-wordtype 100
 ```
 
-Commands for debugging training of this model:
+Commands for debugging training of this model (hubert):
+
+```bash
+MODEL_NAME=test_hubert
+DATA=/home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level/
+#DATA=/home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level_with_padding_idx_offset/
+fairseq-train $DATA \
+    --tensorboard-logdir tb_logs/$MODEL_NAME \
+    --task learn_lexicon_discrete_inputs \
+    --arch lexicon_learner_seq2seq \
+    --criterion lexicon_learner \
+    --optimizer adam \
+    --batch-size 64 \
+    --max-train-wordtypes 100 \
+    --min-train-examples-per-wordtype 10 \
+    --max-train-examples-per-wordtype 10 \
+    --valid-seen-wordtypes 100 \
+    --valid-unseen-wordtypes 100 \
+    --valid-examples-per-wordtype 10 \
+    --valid-subset valid-seen,valid-unseen \
+    --save-dir checkpoints/$MODEL_NAME \
+    --save-interval 1 --max-epoch 2 \
+    --lr 0.001 \
+    --no-save
+```
+
+Commands for debugging training of this model (wav2vec2):
 
 ```bash
 MODEL_NAME=debugging
