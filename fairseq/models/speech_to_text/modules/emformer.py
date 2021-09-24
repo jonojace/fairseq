@@ -49,7 +49,7 @@ class RelativePositionEmbedding(nn.Module):
             nn.init.xavier_uniform_(self.embeddings)
 
     def forward(self, input: Tensor):
-        output = nn.functional.embedding(input.long(), self.embeddings)
+        output = nn.functional.embed_src_tokens(input.long(), self.embeddings)
         return output
 
 

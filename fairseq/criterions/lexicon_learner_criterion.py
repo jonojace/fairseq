@@ -43,7 +43,7 @@ class LexiconLearnerCriterion(FairseqCriterion):
 
         # sample_size = sample['sample_size']
 
-        b_sz = net_output["final_timestep_hidden"].size(0)
+        b_sz = net_output["continuous_out"].size(0)
         assert b_sz % 3 == 0
         num_anchors = int(b_sz / 3)
         sample_size = num_anchors
@@ -59,13 +59,13 @@ class LexiconLearnerCriterion(FairseqCriterion):
         return loss, sample_size, logging_output
 
     def compute_loss(self, model, net_output, sample, reduce):
-        # decompose net_output into anchors, positives, and negatives
-        b_sz = net_output["final_timestep_hidden"].size(0)
+        b_sz = net_output["summary"].size(0)
         assert b_sz % 3 == 0
         num_anchors = int(b_sz / 3)
-        anchor = net_output["final_timestep_hidden"][:num_anchors]
-        positive = net_output["final_timestep_hidden"][num_anchors:2*num_anchors]
-        negative = net_output["final_timestep_hidden"][2*num_anchors:]
+        # decompose net_output["summary"] into anchors, positives, and negatives
+        anchor_summaries = net_output["summary"][:num_anchors]
+        positive_summaries = net_output["summary"][num_anchors:2*num_anchors]
+        negative_summaries = net_output["summary"][2*num_anchors:]
 
         # print("anchor", anchor)
         #
@@ -74,9 +74,9 @@ class LexiconLearnerCriterion(FairseqCriterion):
         # print("negative", negative)
 
         loss = F.triplet_margin_loss(
-            anchor,
-            positive,
-            negative,
+            anchor_summaries,
+            positive_summaries,
+            negative_summaries,
             reduction="sum" if reduce else "none",
         )
 

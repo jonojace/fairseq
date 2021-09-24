@@ -432,7 +432,7 @@ class Embedding(nn.Embedding):
         input = torch.where(
             input >= self.num_embeddings, torch.ones_like(input) * self.unk_idx, input
         )
-        return nn.functional.embedding(
+        return nn.functional.embed_src_tokens(
             input, self.weight, self.padding_idx, self.max_norm,
             self.norm_type, self.scale_grad_by_freq, self.sparse
         )

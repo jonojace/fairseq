@@ -85,7 +85,7 @@ class SentencePredictionR3F(FairseqCriterion):
             and self.classification_head_name in model.classification_heads
         ), "model must provide sentence classification head for --criterion=sentence_prediction"
 
-        token_embeddings = model.encoder.sentence_encoder.embed_tokens(
+        token_embeddings = model.encoder.sentence_encoder.embed_src_tokens(
             sample["net_input"]["src_tokens"]
         )
         input_logits, _ = model(

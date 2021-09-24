@@ -420,3 +420,27 @@ DATA=/home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/wor
     --enc-dropout-out 0.5 \
     --enc-num-layers 3
 
+
+# debugging run interactively
+MODEL_NAME=test_hubert2
+DATA=/home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level_without_padding_idx_offset
+cd ~/fairseq
+fairseq-train $DATA \
+    --tensorboard-logdir tb_logs/$MODEL_NAME \
+    --task learn_lexicon_discrete_inputs \
+    --arch lexicon_learner_seq2seq \
+    --criterion lexicon_learner \
+    --optimizer adam \
+    --batch-size 64 \
+    --padding-index-offset 1 \
+    --min-train-examples-per-wordtype 10 \
+    --max-train-examples-per-wordtype 10 \
+    --valid-seen-wordtypes 100 \
+    --valid-unseen-wordtypes 100 \
+    --valid-examples-per-wordtype 10 \
+    --valid-subset valid-seen,valid-unseen \
+    --save-dir checkpoints/$MODEL_NAME \
+    --save-interval 1 --max-epoch 3 \
+    --lr 0.001 \
+    --cache-all-data \
+    --no-save

@@ -39,6 +39,9 @@ class LearnLexiconConfig(FairseqDataclass):
     valid_examples_per_wordtype: Optional[int] = field(
         default=25, metadata={"help": "number of examples per seen/unseen wordtype to include in validation"}
     )
+    padding_index_offset: int = field(
+        default=1, metadata={"help": "increment all src token IDs by this offset to account for inserting padding symbol at idx 0."}
+    )
 
 
 @register_task("learn_lexicon", dataclass=LearnLexiconConfig)
@@ -76,6 +79,7 @@ class LearnLexiconTask(FairseqTask):
             valid_seen_wordtypes=task_cfg.valid_seen_wordtypes,
             valid_unseen_wordtypes=task_cfg.valid_unseen_wordtypes,
             valid_examples_per_wordtype=task_cfg.valid_examples_per_wordtype,
+            padding_index_offset=task_cfg.padding_index_offset,
         )
 
     # def valid_step(self, sample, model, criterion):

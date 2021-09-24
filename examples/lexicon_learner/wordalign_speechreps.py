@@ -25,7 +25,7 @@ Example usage:
     cd ~/fairseq
     python examples/lexicon_learner/wordalign_speechreps.py \
         -t hubert \
-        --account_for_padding_idx True \
+        --padding_idx_offset 1 \
         -s /home/s1785140/fairseq/examples/lexicon_learner/lj_speech_quantized.txt \
         -a /home/s1785140/data/ljspeech_MFA_alignments \
         -o /home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level_with_padding_idx_offset
@@ -34,10 +34,10 @@ Example usage:
     cd ~/fairseq
     python examples/lexicon_learner/wordalign_speechreps.py \
         -t hubert \
-        --account_for_padding_idx False \
+        --padding_idx_offset 0 \
         -s /home/s1785140/fairseq/examples/lexicon_learner/lj_speech_quantized.txt \
         -a /home/s1785140/data/ljspeech_MFA_alignments \
-        -o /home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level
+        -o /home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level_without_padding_idx_offset
 
     #wav2vec2
     cd ~/fairseq
@@ -58,7 +58,7 @@ from collections import Counter
 parser = argparse.ArgumentParser()
 parser.add_argument('-t', '--type', type=str, default='hubert',
                     help='type of input speech reps that we are using, i.e. hubert wav2vec2 etc.')
-parser.add_argument('--account_for_padding_idx', type=bool, default=True,
+parser.add_argument('--padding_idx_offset', type=int, default=0,
                     help='add 1 to token id of discrete reps in order to allow for padding_idx==0')
 parser.add_argument('-s', '--speech_reps', type=str, required=True,
                     help='path to single non-nested folder containing speech representations (.pt files) or txt file (hubert)')
@@ -100,16 +100,20 @@ else:
 # sanity check
 assert num_of_utts == len(os.listdir(args.alignments))
 
+max_word_reps_id = ""
+max_word_reps_len = 0
+
+print("args.padding_idx_offset", args.padding_idx_offset)
+
 # split each speech reps file using the word-level alignments
 for utt_id in tqdm(utt_ids):
     # load speech reps
     if args.type == "hubert":
         reps = utt_id2speechreps[utt_id]
-        token_offset_for_padding = (1 if args.account_for_padding_idx else 0)
-        reps = [int(s)+token_offset_for_padding for s in reps.split(' ')] # NOTE add 1 to each index so that 0 is available as a padding_idx
+        reps = [int(s)+args.padding_idx_offset for s in reps.split(' ')] # NOTE add 1 to each index so that 0 is available as a padding_idx
         reps = torch.Tensor(reps)
         reps.requires_grad = False
-        print("utt_id", utt_id, "size", reps.size())
+        # print("utt_id", utt_id, "size", reps.size())
 
         # check dimensions
         if reps.dim() == 1:
@@ -148,6 +152,9 @@ for utt_id in tqdm(utt_ids):
 
             # perform word-level splitting of speech reps
             word_reps = get_wordlevel_reprs(reps, word_align)
+            if word_reps.size(0) > max_word_reps_len:
+                max_word_reps_len = word_reps.size(0)
+                max_word_reps_id = wordtype
 
             # create filepath for saving to disk
             # format is: data_path/<wordtype>/<wordtype>_<utt id>_<numbered occurrence in the utterance>.pt
@@ -160,3 +167,6 @@ for utt_id in tqdm(utt_ids):
 
             # FOR DEBUGGING
             # print(wordtype, word_reps.size(), save_path)
+
+print("wordtype with longest num of timesteps is", max_word_reps_id, "with len", max_word_reps_len)
+print("you can set transformer max_source_positions to this")

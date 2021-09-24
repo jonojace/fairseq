@@ -49,6 +49,16 @@ class LearnLexiconConfig(FairseqDataclass):
         default=25, metadata={"help": "number of examples per seen/unseen wordtype to include in validation"}
     )
 
+    debug_only_include_words_beginning_with: Optional[str] = field(
+        default=None, metadata={"help": "only include wordtypes starting with a given letter to speed up debugging iterations"}
+    )
+    padding_index_offset: Optional[int] = field(
+        default=1, metadata={"help": "increment all src token IDs by this offset to account for inserting padding symbol at idx 0."}
+    )
+    cache_all_data: bool = field(
+        default=False, metadata={"help": "cache all data, probably only feasible when using low bitrate reps such as hubert codes"}
+    )
+
 class SimpleDictionaryNoMapping:
     def __init__(
         self,
@@ -121,13 +131,15 @@ class LearnLexiconDiscreteInputsTask(FairseqTask):
             data_path=self.cfg.data,
             split=split,
             save_dir=self.cfg.save_dir,
-            cache_all_data=True,
+            cache_all_data=task_cfg.cache_all_data,
             max_train_wordtypes=task_cfg.max_train_wordtypes,
             max_train_examples_per_wordtype=task_cfg.max_train_examples_per_wordtype,
             min_train_examples_per_wordtype=task_cfg.min_train_examples_per_wordtype,
             valid_seen_wordtypes=task_cfg.valid_seen_wordtypes,
             valid_unseen_wordtypes=task_cfg.valid_unseen_wordtypes,
             valid_examples_per_wordtype=task_cfg.valid_examples_per_wordtype,
+            debug_only_include_words_beginning_with=task_cfg.debug_only_include_words_beginning_with,
+            padding_index_offset=task_cfg.padding_index_offset,
         )
 
     # def valid_step(self, sample, model, criterion):

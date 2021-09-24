@@ -626,7 +626,7 @@ def add_secial_tokens_to_dict_and_model(
     model: nn.Module,
     mono_langs: Sequence[str],
 ) -> None:
-    embs = model.encoder.embed_tokens
+    embs = model.encoder.embed_src_tokens
     vocab_size, embedding_dim = embs.weight.shape
 
     # The model may or may not have a '<mask>' embedding yet
@@ -648,7 +648,7 @@ def add_secial_tokens_to_dict_and_model(
         return
 
     extend_embedding(embs, len(dictionary), dictionary.bos())
-    dec_embs = model.decoder.embed_tokens
+    dec_embs = model.decoder.embed_src_tokens
     extend_embedding(dec_embs, len(dictionary), dictionary.bos())
     lm_head = model.decoder.output_projection
     extend_embedding(lm_head, len(dictionary), dictionary.bos())

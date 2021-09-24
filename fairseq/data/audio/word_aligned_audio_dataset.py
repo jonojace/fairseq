@@ -42,8 +42,13 @@ def random_sampling(a_list, num_samples):
 
 def zeropad_to_len(t, targ_len):
     len_diff = targ_len - t.size(0)
-    return torch.cat([t, t.new_zeros(len_diff, t.size(1))]), len_diff
-
+    if t.dim() == 1:
+        zero_padded_t = torch.cat([t, t.new_zeros(len_diff)])
+    elif t.dim() == 2:
+        zero_padded_t = torch.cat([t, t.new_zeros(len_diff, t.size(1))])
+    else:
+        raise ValueError
+    return zero_padded_t, len_diff
 
 
 class WordAlignedAudioDataset(FairseqDataset):
@@ -106,6 +111,8 @@ class WordAlignedAudioDataset(FairseqDataset):
             randomise_wordtypes=True,
             random_seed=1337,
             wordtypes_to_ignore=('SIL', '<unk>'),
+            debug_only_include_words_beginning_with=None,
+            padding_index_offset=1,
     ):
         super().__init__()
 
@@ -137,6 +144,7 @@ class WordAlignedAudioDataset(FairseqDataset):
         self.sizes = []
         all_indices = []
         self.cache_all_data = cache_all_data
+        self.padding_index_offset = padding_index_offset
 
         # create a mapping between a wordtype and a list of positive examples of that wordtype
         # this data structure is used to quickly find positive and negative examples for a particular word token
@@ -144,6 +152,10 @@ class WordAlignedAudioDataset(FairseqDataset):
 
         # load all subfolders (each of which correspond to a unique wordtype)
         all_subfolders = sorted(os.listdir(data_path))
+
+        # (for debugging) optionally only include wordtypes that start with a certain letter to speed up debugging
+        if debug_only_include_words_beginning_with is not None:
+            all_subfolders = [w for w in all_subfolders if w.startswith(debug_only_include_words_beginning_with)]
 
         # optionally randomise the order so its not alphabetical
         if randomise_wordtypes:
@@ -219,11 +231,12 @@ class WordAlignedAudioDataset(FairseqDataset):
                 wordtype_to_incl_idx += 1
 
         # cache all data in order to avoid accessing disk (locally or network) during training
+        # (more feasible when loading smaller data formats such as hubert codes vs full wav2vec2.0 vectors)
         if self.cache_all_data:
-            examples = []
-            for fp in self.examples:
-                examples.append(torch.load(fp))
-            self.examples = examples
+            self.cached_data = []
+            logger.info(f"Caching {len(self.examples)} examples.")
+            for fp in tqdm(self.examples):
+                self.cached_data.append(torch.load(fp).int() + self.padding_index_offset)
 
         # Sanity checks
         assert all_indices == list(range(len(self.examples)))
@@ -250,28 +263,53 @@ class WordAlignedAudioDataset(FairseqDataset):
         positive_index = list(self.get_positive_indices(anchor_index, num_examples=1))[0]
         negative_index = list(self.get_negative_indices(anchor_index, num_examples=1))[0]
 
+        # load inputs
         if self.cache_all_data:
-            anchor_in = self.examples[anchor_index]
-            positive_in = self.examples[positive_index]
-            negative_in = self.examples[negative_index]
+            anchor_in = self.cached_data[anchor_index]
+            positive_in = self.cached_data[positive_index]
+            negative_in = self.cached_data[negative_index]
         else:
-            anchor_in = torch.load(self.examples[anchor_index])
-            positive_in = torch.load(self.examples[positive_index])
-            negative_in = torch.load(self.examples[negative_index])
+            anchor_in = torch.load(self.examples[anchor_index]).int() + self.padding_index_offset # TODO warning this will not work with continuous reps!
+            positive_in = torch.load(self.examples[positive_index]).int() + self.padding_index_offset
+            negative_in = torch.load(self.examples[negative_index]).int() + self.padding_index_offset
+
+        # create tensors for indicating where we want to output targets
+        # e.g. 1 in timesteps where there is a grapheme and 0 where we do not have a grapheme
+        #      (padding will be performed later by collater)
+        anchor_tgt = torch.ones(self.get_tgt_len(anchor_index, units="graphemes"), dtype=torch.int)
+        positive_tgt = torch.ones(self.get_tgt_len(positive_index, units="graphemes"), dtype=torch.int)
+        negative_tgt = torch.ones(self.get_tgt_len(negative_index, units="graphemes"), dtype=torch.int)
+
+        # print("debug", self.index2wordtype(anchor_index), anchor_tgt)
 
         return {
             "anchor_index": anchor_index,
             "positive_index": positive_index,
             "negative_index": negative_index,
-            "anchor_in": anchor_in,
+            "anchor_in": anchor_in, # e.g. speech reps of the anchor word
             "positive_in": positive_in,
             "negative_in": negative_in,
+            "anchor_tgt": anchor_tgt,
+            "positive_tgt": positive_tgt,
+            "negative_tgt": negative_tgt,
         }
+
+    def get_tgt_len(self, wordtoken_index, units="graphemes"):
+        """
+        return the length of some metadata related to the wordtype associated with a wordtoken
+        e.g. number of graphemes or phonemes of that wordtype
+        """
+        if units == "graphemes":
+            tgt_len = len(self.index2wordtype(wordtoken_index))
+        elif units == "phones":
+            raise NotImplementedError
+        else:
+            raise ValueError
+
+        return tgt_len
 
     def __len__(self):
         return len(self.examples)
-
-
 
     def index2wordtype(self, index):
         filepath = self.examples[index]
@@ -316,91 +354,82 @@ class WordAlignedAudioDataset(FairseqDataset):
         if len(samples) == 0:
             return {}
 
-        # get indices
-        anchor_indices = torch.tensor([s["anchor_index"] for s in samples], dtype=torch.long)
-        positive_indices = torch.tensor([s["positive_index"] for s in samples], dtype=torch.long)
-        negative_indices = torch.tensor([s["negative_index"] for s in samples], dtype=torch.long)
+        # # get indices
+        # anchor_indices = torch.tensor([s["anchor_index"] for s in samples], dtype=torch.long)
+        # positive_indices = torch.tensor([s["positive_index"] for s in samples], dtype=torch.long)
+        # negative_indices = torch.tensor([s["negative_index"] for s in samples], dtype=torch.long)
 
-        # get wordtypes just for anchor words
-        anchor_wordtypes = [self.index2wordtype(idx) for idx in anchor_indices]
+        # # get wordtypes just for anchor words
+        # anchor_wordtypes = [self.index2wordtype(idx) for idx in anchor_indices]
 
-        # get speech representation inputs
-        anchor_ins = [s["anchor_in"] for s in samples]
-        positive_ins = [s["positive_in"] for s in samples]
-        negative_ins = [s["negative_in"] for s in samples]
-
-        # get timesteps of each input before performing zero padding for batching
-        anchor_szs = torch.tensor([s["anchor_in"].size(0) for s in samples], dtype=torch.long)
-        positive_szs = torch.tensor([s["positive_in"].size(0) for s in samples], dtype=torch.long)
-        negative_szs = torch.tensor([s["negative_in"].size(0) for s in samples], dtype=torch.long)
-
-        # TODO perform sorting according to length like in speech_to_text_dataset.py? how does this increase perf?
-
-        ################################################################################################################
-        # zero pad according to the longest sequence among anchor, positive, or negative inputs.
-
-        # create 0s tensor
-        b_sz = 3 * len(samples)
-        max_len = torch.max(torch.cat([anchor_szs, positive_szs, negative_szs])).item()
-        hid_dim = samples[0]["anchor_in"].size(1)
-        collated_inputs = torch.zeros(b_sz, max_len, hid_dim)
-        lengths = torch.zeros(b_sz, dtype=torch.int64)
-        padding_mask = torch.BoolTensor(b_sz, max_len).fill_(True)
-
-        # populate with data, group by anchors, positives, negatives
-        for i, anchor_in in enumerate(anchor_ins):
-            collated_inputs[i], anchor_len_diff = zeropad_to_len(anchor_in, max_len)
-            lengths[i] =  anchor_in.size(0)
-            padding_mask[i, -anchor_len_diff:] = False
-
-        for i, positive_in in enumerate(positive_ins):
-            i += len(samples)
-            collated_inputs[i], positive_len_diff = zeropad_to_len(positive_in, max_len)
-            lengths[i] =  positive_in.size(0)
-            padding_mask[i, -positive_len_diff:] = False
-
-        for i, negative_in in enumerate(negative_ins):
-            i += 2 * len(samples)
-            collated_inputs[i], negative_len_diff = zeropad_to_len(negative_in, max_len)
-            lengths[i] =  negative_in.size(0)
-            padding_mask[i, -negative_len_diff:] = False
-
-        # for i, (anchor_in, positive_in, negative_in) in enumerate(zip(anchor_ins, positive_ins, negative_ins)):
-        #     collated_inputs[3 * i], anchor_len_diff = zeropad_to_len(anchor_in, max_len, hid_dim)
-        #     collated_inputs[3 * i + 1], positive_len_diff = zeropad_to_len(positive_in, max_len, hid_dim)
-        #     collated_inputs[3 * i + 2], negative_len_diff = zeropad_to_len(negative_in, max_len, hid_dim)
-        #     lengths[3 * i] =  anchor_in.size(0)
-        #     lengths[3 * i + 1] = positive_in.size(0)
-        #     lengths[3 * i + 2] = negative_in.size(0)
-        #     padding_mask[3 * i, -anchor_len_diff:] = False
-        #     padding_mask[3 * i + 1, -positive_len_diff:] = False
-        #     padding_mask[3 * i + 2, -negative_len_diff:] = False
-
-        # for i, (anchor_in, positive_in, negative_in) in enumerate(zip(anchor_ins, positive_ins, negative_ins)):
-        #     collated_inputs[3 * i], anchor_len_diff = zeropad_to_len(anchor_in, max_len, hid_dim)
-        #     collated_inputs[3 * i + 1], positive_len_diff = zeropad_to_len(positive_in, max_len, hid_dim)
-        #     collated_inputs[3 * i + 2], negative_len_diff = zeropad_to_len(negative_in, max_len, hid_dim)
-        #     lengths[3 * i] =  anchor_in.size(0)
-        #     lengths[3 * i + 1] = positive_in.size(0)
-        #     lengths[3 * i + 2] = negative_in.size(0)
-        #     padding_mask[3 * i, -anchor_len_diff:] = False
-        #     padding_mask[3 * i + 1, -positive_len_diff:] = False
-        #     padding_mask[3 * i + 2, -negative_len_diff:] = False
+        collated_inputs, in_lengths = self.collate_anchor_positive_negative_tensors(samples, feat_type='in')
+        collated_tgts, tgt_lengths = self.collate_anchor_positive_negative_tensors(samples, feat_type='tgt')
 
         return {
-            "anchor_indices": anchor_indices,
-            "positive_indices": positive_indices,
-            "negative_indices": negative_indices,
-            "anchor_wordtypes": anchor_wordtypes,
+            "net_input": {
+                "src_tokens": collated_inputs,
+                "tgt_tokens": collated_tgts,
+                # "src_lengths": in_lengths,
+                "tgt_lengths": tgt_lengths,
+            },
+            "sample_size": in_lengths.sum().item(),
+            # "anchor_indices": anchor_indices,
+            # "positive_indices": positive_indices,
+            # "negative_indices": negative_indices,
+            # "anchor_wordtypes": anchor_wordtypes,
             # "nsentences": len(samples),
             # "ntokens": sum(len(s["source"]) for s in samples),
             # "target": target,
-            "net_input": {
-                "src_tokens": collated_inputs,
-                "src_lengths": lengths,
-            },
-            "sample_size": lengths.sum().item(),
         }
+
+    def collate_anchor_positive_negative_tensors(self, samples, feat_type):
+        """
+        collate anchor positive and negative for a given feat in samples
+
+        feat_type could be:
+            "in" for inputs
+            "tgt" for targets
+        for example
+        """
+        # get speech representation inputs, and place in lists
+        anchor_tensors = [s[f"anchor_{feat_type}"] for s in samples]
+        positive_tensors = [s[f"positive_{feat_type}"] for s in samples]
+        negative_tensors = [s[f"negative_{feat_type}"] for s in samples]
+
+        # zero pad according to the longest sequence among anchor, positive, or negative inputs.
+        # get timesteps of each input before performing zero padding for batching
+        # so that we know what the maximum length of the tensor should be
+        anchor_szs = torch.tensor([s[f"anchor_{feat_type}"].size(0) for s in samples], dtype=torch.long)
+        positive_szs = torch.tensor([s[f"positive_{feat_type}"].size(0) for s in samples], dtype=torch.long)
+        negative_szs = torch.tensor([s[f"negative_{feat_type}"].size(0) for s in samples], dtype=torch.long)
+        max_len = torch.max(torch.cat([anchor_szs, positive_szs, negative_szs])).item()
+        # create 0s tensor
+        b_sz = 3 * len(samples)
+        if samples[0][f"anchor_{feat_type}"].dim() == 1:  # discrete
+            collated_tensor = torch.zeros(b_sz, max_len, dtype=torch.int)
+        elif samples[0][f"anchor_{feat_type}"].dim() == 2:  # continuous
+            hid_dim = samples[0][f"anchor_{feat_type}"].size(1)
+            collated_tensor = torch.zeros(b_sz, max_len, hid_dim, dtype=torch.float)
+        else:
+            raise ValueError
+        # print("collated_tensor.size()", collated_tensor.size())
+        lengths = torch.zeros(b_sz, dtype=torch.int64)
+
+        # populate with data, group by anchors, positives, negatives
+        for i, anchor_t in enumerate(anchor_tensors):
+            # print("anchor", i)
+            collated_tensor[i], _ = zeropad_to_len(anchor_t, max_len)
+            lengths[i] = anchor_t.size(0)
+        for i, positive_t in enumerate(positive_tensors, start=len(samples)):
+            # print("positive", i)
+            collated_tensor[i], _ = zeropad_to_len(positive_t, max_len)
+            lengths[i] = positive_t.size(0)
+        for i, negative_t in enumerate(negative_tensors, start=2*len(samples)):
+            # print("negative", i)
+            collated_tensor[i], _ = zeropad_to_len(negative_t, max_len)
+            lengths[i] = negative_t.size(0)
+
+        return collated_tensor, lengths
 
     def num_tokens(self, index):
         """Return the number of tokens in a sample. This value is used to

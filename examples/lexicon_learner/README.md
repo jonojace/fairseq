@@ -84,29 +84,33 @@ fairseq-train $DATA \
     --max-examples-per-wordtype 100
 ```
 
-Commands for debugging training of this model (hubert):
+Commands for fast debugging training of this model (hubert):
 
 ```bash
 MODEL_NAME=test_hubert
-DATA=/home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level/
-#DATA=/home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level_with_padding_idx_offset/
+DATA=/home/s1785140/data/ljspeech_hubert_reps/hubert-base/layer-6/word_level_without_padding_idx_offset
+cd ~/fairseq
 fairseq-train $DATA \
     --tensorboard-logdir tb_logs/$MODEL_NAME \
     --task learn_lexicon_discrete_inputs \
     --arch lexicon_learner_seq2seq \
     --criterion lexicon_learner \
     --optimizer adam \
-    --batch-size 64 \
-    --max-train-wordtypes 100 \
-    --min-train-examples-per-wordtype 10 \
-    --max-train-examples-per-wordtype 10 \
-    --valid-seen-wordtypes 100 \
-    --valid-unseen-wordtypes 100 \
-    --valid-examples-per-wordtype 10 \
+    --batch-size 4 \
+    --mask-transformer-outputs \
+    --padding-index-offset 1 \
+    --max-train-wordtypes 10 \
+    --min-train-examples-per-wordtype 2 \
+    --max-train-examples-per-wordtype 2 \
+    --valid-seen-wordtypes 5 \
+    --valid-unseen-wordtypes 5 \
+    --valid-examples-per-wordtype 2 \
     --valid-subset valid-seen,valid-unseen \
     --save-dir checkpoints/$MODEL_NAME \
     --save-interval 1 --max-epoch 2 \
     --lr 0.001 \
+    --cache-all-data \
+    --debug-only-include-words-beginning-with b \
     --no-save
 ```
 

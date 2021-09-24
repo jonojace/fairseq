@@ -75,11 +75,11 @@ class RobertaEncDecModel(FairseqEncoderDecoderModel):
     @staticmethod
     def from_roberta(roberta_enc: roberta.RobertaModel, args, dictionary):
         encoder = roberta_enc.encoder.sentence_encoder
-        vocab_size, embed_dim = encoder.embed_tokens.weight.shape
+        vocab_size, embed_dim = encoder.embed_src_tokens.weight.shape
 
         if args.share_all_embeddings:
             lm_head = roberta_enc.encoder.lm_head
-            assert encoder.embed_tokens.weight is lm_head.weight, (
+            assert encoder.embed_src_tokens.weight is lm_head.weight, (
                 "Can't use --share-all-embeddings with a model "
                 "that was pretraiend with --untie-weights-roberta_enc"
             )
@@ -124,13 +124,13 @@ class RobertaEncDecModel(FairseqEncoderDecoderModel):
 
         if args.share_all_embeddings:
             assert decoder.output_projection.weight is decoder.embed_tokens.weight
-            assert encoder.embed_tokens.weight is decoder.embed_tokens.weight
+            assert encoder.embed_src_tokens.weight is decoder.embed_tokens.weight
         elif args.share_decoder_input_output_embed:
             assert decoder.output_projection.weight is decoder.embed_tokens.weight
-            assert encoder.embed_tokens.weight is not decoder.embed_tokens.weight
+            assert encoder.embed_src_tokens.weight is not decoder.embed_tokens.weight
         else:
             assert decoder.output_projection.weight is not decoder.embed_tokens.weight
-            assert encoder.embed_tokens.weight is not decoder.embed_tokens.weight
+            assert encoder.embed_src_tokens.weight is not decoder.embed_tokens.weight
 
         return RobertaEncDecModel(encoder, decoder)
 
