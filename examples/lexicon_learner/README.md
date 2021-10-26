@@ -10,6 +10,14 @@ pip install jupyter # ensures that jupyter can find env python packages
 conda install -y pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch # works with ILCC cluster 2080Ti GPU
 #conda install -y -c conda-forge librosa
 #pip install -r requirements.txt
+
+# to make env visible to jupyter notebooks @ https://stackoverflow.com/questions/39604271/conda-environments-not-showing-up-in-jupyter-notebook
+conda install ipykernel
+conda install nb_conda_kernels # or conda install nb_conda
+conda install ipywidgets
+python -m ipykernel install --user --name fairseq --display-name "Python (fairseq)"
+pip install jupyterlab
+pip install torchdistill
 ```
 
 # Install fairseq
@@ -17,6 +25,7 @@ conda install -y pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch # wo
 cd fairseq
 pip install --editable ./
 pip install pyarrow
+pip install tensorboard
 ```
 
 # Setup data speech reps
@@ -95,9 +104,9 @@ fairseq-train $DATA \
     --task learn_lexicon_discrete_inputs \
     --arch lexicon_learner_seq2seq \
     --criterion lexicon_learner \
+    --sequence-loss-method summariser \
     --optimizer adam \
-    --batch-size 4 \
-    --mask-transformer-outputs \
+    --batch-size 2 \
     --padding-index-offset 1 \
     --max-train-wordtypes 10 \
     --min-train-examples-per-wordtype 2 \
@@ -111,6 +120,8 @@ fairseq-train $DATA \
     --lr 0.001 \
     --cache-all-data \
     --debug-only-include-words-beginning-with b \
+    --normalize-out \
+    --transformer-mask-outputs \
     --no-save
 ```
 
@@ -205,3 +216,63 @@ tensorboard --logdir=tb_logs/ --port 1337
 If you can see tensorboard logs from another user, change the port number.
 
 # Evaluate model
+
+
+## Remote jupyter notebook development
+
+Choose A or B:
+
+### A: Using configured server (started yourself on a gpu node)
+
+Instructions adapted from:
+https://nero-docs.stanford.edu/jupyter-slurm.html
+
+1. Start up jupyter server on remote GPU node. Make a note of the node you were assigned to ('duflo' in this example). 
+
+```bash
+ssh s1785140@escience6.inf.ed.ac.uk # replace s1785140 with your dice username
+srun --part=ILCC_GPU,CDT_GPU --gres=gpu:gtx2080ti:1 --cpus-per-task=1 --mem=8000 --pty bash
+conda activate word-templates
+cd word-templates # (optional) go to project root to change the 'cwd' of jupyter
+jupyter notebook --no-browser --ip=0.0.0.0 # or jupyter-lab --no-browser --ip=0.0.0.0
+```
+
+2. Find the notebook URL related to the node that you were assigned. For example in the example below the correct link is `http://duflo.inf.ed.ac.uk:8888/?token=95dd3ae95c8d91c466405cbcaf8114e944b85d731b481183`
+
+```bash
+[I 16:23:20.776 NotebookApp] Serving notebooks from local directory: /disk/nfs/ostrom/s1785140
+[I 16:23:20.777 NotebookApp] Jupyter Notebook 6.4.0 is running at:
+[I 16:23:20.777 NotebookApp] http://duflo.inf.ed.ac.uk:8888/?token=95dd3ae95c8d91c466405cbcaf8114e944b85d731b481183
+[I 16:23:20.777 NotebookApp]  or http://127.0.0.1:8888/?token=95dd3ae95c8d91c466405cbcaf8114e944b85d731b481183
+[I 16:23:20.777 NotebookApp] Use Control-C to stop this server and shut down all kernels (twice to skip confirmation).
+```
+
+3. Either click the link to directly develop in your browser or copy the link and paste into pycharm as a configured jupyter notebook server to develop there.
+
+4. Test if GPU works in jupyter notebook. Enter in cell:
+
+```python
+import torch
+torch.tensor([1.0, 2.0]).cuda()
+```
+
+If you want to make access to the notebook easier from the url without a token string, then set your jupyter notebook password
+
+```bash
+jupyter notebook password
+```
+
+### B: Using managed server (managed/started by pycharm) NOT SOLVED!!!
+First need to setup a remote interpreter for jupyter to run in (https://www.jetbrains.com/help/pycharm/configuring-remote-interpreters-via-ssh.html)
+
+https://www.jetbrains.com/help/pycharm/configuring-jupyter-notebook.html
+
+NOT SOLVED... some info about how to possibly run pycharm using srun interactive gpu on slurm
+https://intellij-support.jetbrains.com/hc/en-us/community/posts/115000489490-Running-remote-interpreter-on-a-cluster-with-srun
+https://researchcomputing.princeton.edu/support/knowledge-base/pytorch#jupyter
+
+
+## Remote debugging
+
+https://www.jetbrains.com/help/pycharm/remote-debugging-with-product.html#remote-interpreter
+

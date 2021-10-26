@@ -111,7 +111,7 @@ for utt_id in tqdm(utt_ids):
     if args.type == "hubert":
         reps = utt_id2speechreps[utt_id]
         reps = [int(s)+args.padding_idx_offset for s in reps.split(' ')] # NOTE add 1 to each index so that 0 is available as a padding_idx
-        reps = torch.Tensor(reps)
+        reps = torch.tensor(reps)
         reps.requires_grad = False
         # print("utt_id", utt_id, "size", reps.size())
 

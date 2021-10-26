@@ -340,6 +340,8 @@ class TensorboardProgressBarWrapper(BaseProgressBar):
                 "tensorboard not found, please install with: pip install tensorboard"
             )
 
+        # logger.info("Successfully initialised TensorboardProgressBarWrapper()")
+
     def _writer(self, key):
         if SummaryWriter is None:
             return None
@@ -368,6 +370,7 @@ class TensorboardProgressBarWrapper(BaseProgressBar):
         self.wrapped_bar.update_config(config)
 
     def _log_to_tensorboard(self, stats, tag=None, step=None):
+        # logger.info("Logging to tb...")
         writer = self._writer(tag or "")
         if writer is None:
             return

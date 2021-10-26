@@ -6,6 +6,8 @@ python evaluate_lexicon_learner.py $DATA --path /home/s1785140/fairseq/checkpoin
 python evaluate_lexicon_learner.py $DATA --path /home/s1785140/fairseq/checkpoints/ --max_wordtypes_per_split 30
 python evaluate_lexicon_learner.py $DATA --path /home/s1785140/fairseq/checkpoints/ --max_wordtypes_per_split 40
 python evaluate_lexicon_learner.py $DATA --path /home/s1785140/fairseq/checkpoints/ --max_wordtypes_per_split 50
+
+NB!!! old script, refer to evaluate_lexicon_learner_seq2seq.ipynb for new script
 '''
 
 from fairseq import checkpoint_utils, data, options, tasks
@@ -32,6 +34,7 @@ MODELS = MODELS.strip().split('\n')
 # """
 
 def get_len(filename):
+    """get len of wordtype from the filename"""
     return int(filename.rstrip('.pt').split('len')[-1])
 
 def get_outputs_for_wordtype(data, model, wordtype, N):

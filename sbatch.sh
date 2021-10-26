@@ -57,20 +57,21 @@ fi
 nodes=1
 gpu_num=1
 gpus=${gpu_type}${gpu_num} #note if gpu_type is empty string then it is just gpu_num, which is fine
-# cpus=$(( 2*gpus ))
-cpus=1 #might need to use only 1 cpu if node does not have many cores
+cpus=$(( 2*gpu_num ))
+#cpus=1 #might need to use only 1 cpu if node does not have many cores
 tasks=1
-#part=ILCC_GPU
 part=ILCC_GPU,CDT_GPU
 # part=ILCC_GPU,CDT_GPU,M_AND_I_GPU
-time=10-00:00:00
+time=3-00:00:00
 #mem=8G
 mem=16G
 mail_user=s1785140@sms.ed.ac.uk
-# mail_type=BEGIN,END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT # same as ALL
-mail_type=END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT
+ mail_type=BEGIN,END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT # same as ALL
+#mail_type=END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT
 # Exclude particular nodes (used when nodes scratch disk is full)
-# exclude="--exclude=nuesslein"
+#exclude_list=""
+exclude_list=arnold
+#exclude_list=arnold,duflo
 
 # =====================
 # create the sbatch file
@@ -81,14 +82,23 @@ echo '#!/bin/bash' > temp_slurm_job.sh
 #job params
 echo "#SBATCH --nodes=${nodes}" >> temp_slurm_job.sh
 echo "#SBATCH --gres=gpu:${gpus}" >> temp_slurm_job.sh
-echo "#SBATCH --cpus-per-task=${cpus}" >> temp_slurm_job.sh
-echo "#SBATCH --mem=${mem}" >> temp_slurm_job.sh
-echo "#SBATCH --ntasks=${tasks}" >> temp_slurm_job.sh
+#echo "#SBATCH --cpus-per-task=${cpus}" >> temp_slurm_job.sh
+#echo "#SBATCH --mem=${mem}" >> temp_slurm_job.sh  # warning this requests unreserved mem, if not found you will
+# not be able to get a node. if you don't use this flag, you will get a default setting for mem
+# and your jobs will get killed if they exceed it.
+#echo "#SBATCH --ntasks=${tasks}" >> temp_slurm_job.sh
 echo "#SBATCH --time=${time}" >> temp_slurm_job.sh
 echo "#SBATCH --partition=${part}" >> temp_slurm_job.sh
 echo "#SBATCH --mail-user=${mail_user}" >> temp_slurm_job.sh
 echo "#SBATCH --mail-type=${mail_type}" >> temp_slurm_job.sh
 echo "#SBATCH --output=${LOG_DIR}/%j" >> temp_slurm_job.sh #Note! remember to make this directory if it doesn't exist
+if [ -z "$exclude_list" ]
+then
+      echo "\$exclude_list is empty"
+else
+      echo "\$exclude_list is NOT empty"
+      echo "#SBATCH --exclude=${exclude_list}" >> temp_slurm_job.sh
+fi
 
 #rsyncing of data to scratch disk
 # echo "rsync -avu ${repo_home}/data $scratch_folder/" >> temp_slurm_job.sh #move preprocessed data from repo dir to the scratch disk
@@ -118,6 +128,6 @@ echo "srun ${cmd_to_run_on_cluster}" >> temp_slurm_job.sh
 # =====================
 # submit this temporary sbatch script to the cluster
 # =====================
-# cat temp_slurm_job.sh #debug
+ cat temp_slurm_job.sh #debug
 sbatch temp_slurm_job.sh
 # rm temp_slurm_job.sh #dont need to do this if u want to inspect/modify the job script that was created

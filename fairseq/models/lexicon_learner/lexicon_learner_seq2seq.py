@@ -1,12 +1,13 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from dataclasses import dataclass, field
 from fairseq.dataclass import FairseqDataclass
 from fairseq.models import (
     BaseFairseqModel,
     register_model,
-    FairseqEncoder,
 )
+from fairseq.modules.sinusoidal_positional_embedding import SinusoidalPositionalEmbedding
 from typing import Any, Dict, List, Optional, Tuple
 import joblib
 # from fairseq import utils
@@ -42,12 +43,15 @@ class LexiconLearnerSeq2SeqConfig(FairseqDataclass):
     input_dim: int = field(
         default=768, metadata={"help": "dimension of input speech features / dim of embedding table for discrete reps such as hubert. Defaults are 1024 for wav2vec2, 768 for hubert."}
     )
-    encoder_embed_dim: int = field(
-        default=768, metadata={"help": "encoder embedding dimension"}
-    )
-    encoder_embed_path: str = field(
+    embeddings_path: str = field(
         default="/home/s1785140/fairseq/examples/lexicon_learner/embeddings/hubert_km100.bin",
         metadata={"help": "filepath to embedding table (i.e. hubert k-means cluster centroid vectors)"}
+    )
+
+    ##############
+    # Loss type
+    sequence_loss_method: Optional[str] = field(
+        default="softdtw", metadata={"help": "way to calculate loss between two variable length sequences. Either 'softdtw' or 'summariser'"}
     )
 
     ##############
@@ -71,9 +75,40 @@ class LexiconLearnerSeq2SeqConfig(FairseqDataclass):
         default=-1, metadata={"help": "which layer of summariser to use in triplet loss"}
     )
 
+    ##############
     # Transformer specific
-    mask_transformer_outputs: bool = field(
+    normalize_src: bool = field(
+        default=False, metadata={"help": "normalisation"}
+    )
+    normalize_tgt: bool = field(
+        default=False, metadata={"help": "normalisation"}
+    )
+    normalize_out: bool = field(
+        default=False, metadata={"help": "normalisation"}
+    )
+    use_positional_encodings_for_enc: bool = field(
+        default=True, metadata={"help": "whether to use positional encodings for enc inputs"}
+    )
+    use_positional_encodings_for_dec: bool = field(
+        default=True, metadata={"help": "whether to use positional encodings for dec inputs"}
+    )
+    transformer_mask_outputs: bool = field(
         default=False, metadata={"help": "mask transformer outputs where we do not want to make predictions"}
+    )
+    transformer_nheads: Optional[int] = field(
+        default=8, metadata={"help": "number of attention heads"}
+    )
+    transformer_enc_layers: Optional[int] = field(
+        default=6, metadata={"help": "number of encoder layers"}
+    )
+    transformer_dec_layers: Optional[int] = field(
+        default=6, metadata={"help": "number of decoder layers"}
+    )
+    transformer_dim_feedforward: Optional[int] = field(
+        default=2048, metadata={"help": "dim of transformer feedforward network layer"}
+    )
+    transformer_dropout: Optional[float] = field(
+        default=0.1, metadata={"help": "transformer dropout"}
     )
 
     # max_source_positions: int = field(
@@ -216,8 +251,32 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
         self.cfg = cfg
         self.task = task
 
-        self.embed_src_tokens = self.build_src_embedding(task.src_dict, cfg.input_dim, cfg.encoder_embed_path)
+        # used to embed hubert codes to centroids calculated by k-means
+        self.embed_src_tokens = self.build_src_embedding(task.src_dict, cfg.input_dim, cfg.embeddings_path)
+        # used to condition decoder, indicate where we want model to make predictions and where we do not.
         self.embed_tgt_tokens = self.build_tgt_embedding(cfg.input_dim)
+
+        # print("DEBUG normalisation values:")
+        # print(cfg.normalize_src)
+        # print(cfg.normalize_tgt)
+        # print(cfg.normalize_out)
+
+        # positional embeddings
+        # we have positional embeddings
+        if cfg.use_positional_encodings_for_enc:
+            self.embed_enc_positions = SinusoidalPositionalEmbedding(
+                cfg.input_dim,
+                task.src_dict.pad(),
+                init_size=self.embed_src_tokens.weight.size(0)
+                # init_size=num_embeddings + padding_idx + 1, # TODO update these to take into account sos and eos symbols when added?
+        )
+        if cfg.use_positional_encodings_for_dec:
+            self.embed_dec_positions = SinusoidalPositionalEmbedding(
+                cfg.input_dim,
+                task.src_dict.pad(), # TODO update this to use a target_dict instead
+                init_size=self.embed_tgt_tokens.weight.size(0)
+                # init_size=num_embeddings + padding_idx + 1, # TODO update these to take into account sos and eos symbols when added?
+            )
 
         # tgt is the target input, in the training you need tgt input as golden truth to do teacher
         # forcing learning, but in the inference, you don’t need tgt, you only need to input the
@@ -225,35 +284,25 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
         # TODO add CLA to modify transformer params
         self.transformer = nn.Transformer(
             d_model=cfg.input_dim,
-            nhead=8,
-            num_encoder_layers=6,
-            num_decoder_layers=6,
-            dim_feedforward=2048,
-            dropout=0.1,
+            nhead=cfg.transformer_nheads,
+            num_encoder_layers=cfg.transformer_enc_layers,
+            num_decoder_layers=cfg.transformer_dec_layers,
+            dim_feedforward=cfg.transformer_dim_feedforward,
+            dropout=cfg.transformer_dropout,
             batch_first=True,
         )
 
         # self.encoder = TransformerEncoder(cfg, task.src_dict, encoder_embed_tokens)
         # self.decoder = TransformerDecoder(cfg, None, decoder_embed_tokens)
         # self.output_projection = nn.Linear(cfg.summariser_hid_dim, cfg.summariser_out_dim)
-        self.summariser = LSTMEncoder(cfg)
+        if cfg.sequence_loss_method == "summariser":
+            self.summariser = LSTMEncoder(cfg)
 
 
     @classmethod
     def build_model(cls, cfg: LexiconLearnerSeq2SeqConfig, task=None):
         """Build a new model instance."""
-
-        # encoder_embed_tokens = cls.build_embedding(
-        #     task.src_dict, cfg.input_dim, cfg.encoder_embed_path
-        # )
-        #
-        # decoder_embed_tokens = cls.build_existence_embedding(
-        #     task.src_dict, cfg.input_dim, cfg.encoder_embed_path
-        # )
-
         return cls(cfg, task)
-
-        # return cls(cfg, task, encoder_embed_tokens, decoder_embed_tokens)
 
     @classmethod
     def build_src_embedding(cls, dictionary, embed_dim, path):
@@ -272,7 +321,7 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
 
         # load pretrained embeddings
         kmeans_model = joblib.load(open(path, "rb"))  # this is just a sklearn model
-        centroids = torch.Tensor(kmeans_model.cluster_centers_)
+        centroids = torch.tensor(kmeans_model.cluster_centers_)
 
         # sanity check
         assert padding_idx == 0 # TODO WARNING HARDCODED
@@ -306,26 +355,7 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
                 # src_lengths, # num of speech rep timesteps for each word example
                 tgt_lengths, # num of tokens to output per word, equal to phones or graphemes for example.
                 # set to None if no hard constraint is desired.
-                # return_all_hiddens: bool = True,
                 ):
-
-        # encoder_out = self.encoder(
-        #     src_tokens, src_lengths=src_lengths, return_all_hiddens=return_all_hiddens
-        # )
-        # # NOTE no prev_output_tokens since we do not have ground truth targets for teaching forcing
-        # # NOTE instead we set it to all 0's, and thus decoder only takes encoder_out as conditioning info
-        # # NOTE OR 1's where we want to make a prediction, and 0 where we do not want to make a prediction
-        # # NOTE (i.e. > # of graphemes)
-        # prev_output_tokens = 0
-        # decoder_out = self.decoder(
-        #     prev_output_tokens,
-        #     encoder_out=encoder_out,
-        #     src_lengths=src_lengths,
-        #     features_only=features_only,
-        #     alignment_layer=alignment_layer,
-        #     alignment_heads=alignment_heads,
-        #     return_all_hiddens=return_all_hiddens,
-        # )
 
         # print(type(src_tokens))
         # print(type(tgt_tokens))
@@ -334,9 +364,24 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
 
         src = self.embed_src_tokens(src_tokens)
         tgt = self.embed_tgt_tokens(tgt_tokens)
-        # tgt = torch.ones(src.size())  # tgt usually is inputs shifted by one-timestep for teacher forcing
-        # # however we set it to simpler 0's where we do not want to make a prediction and 1's to where we do
-        # # no. of 1's could be the number of phonemes, or graphemes for example
+        # tgt usually is inputs shifted by one-timestep for teacher forcing
+        # however we set it to simpler 0's where we do not want to make a prediction and 1's to where we do
+        # no. of 1's could be the number of phonemes, or graphemes for example
+
+        if self.embed_enc_positions is not None:
+            src_positions = self.embed_enc_positions(src_tokens)
+            src += src_positions
+        if self.embed_dec_positions is not None:
+            tgt_positions = self.embed_dec_positions(tgt_tokens) # TODO need incremental_state=incremental_state???
+            tgt += tgt_positions  # TODO need here too?
+
+        # normalize inputs
+        # TODO add CLA for this for hparam tuning
+        if self.cfg.normalize_src:
+            src = F.normalize(src, dim=2)
+        if self.cfg.normalize_tgt:
+            tgt = F.normalize(tgt, dim=2)
+
 
         src_mask = get_mask(src_tokens, padding_idx=0) # mask out src positions where we do not have audio, so we do not attend over those positions
         tgt_mask = get_mask(tgt_tokens, padding_idx=0) # mask out timesteps where we do not want transformer make predictions (note this masks attn...)
@@ -349,14 +394,19 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
             src_key_padding_mask=src_mask,
             tgt_key_padding_mask=tgt_mask,
             memory_key_padding_mask=memory_mask,
-        )
+        ) # continuous_out [b_sz, seq_len, dim]
+
+        # normalize outputs
+        # TODO add CLA for this for hparam tuning
+        if self.cfg.normalize_out:
+            continuous_out = F.normalize(continuous_out, dim=2) # over dim 2, i.e. the output dimension of the network
 
         # mask transformer outputs where we do not want to make predictions
         # so that summariser+triplet loss 100% does not consider them
-        if self.cfg.mask_transformer_outputs:
+        if self.cfg.transformer_mask_outputs:
             continuous_out[tgt_mask] = 0.0
 
-        print(continuous_out.size(), tgt_mask.size())
+        # print(continuous_out.size(), tgt_mask.size())
         # print("continuous_out", continuous_out)
         # print("tgt_mask", tgt_mask)
         # print("tgt_lengths", tgt_lengths)
@@ -367,12 +417,16 @@ class LexiconLearnerSeq2Seq(BaseFairseqModel):
 
         # TODO instead run soft-dtw of continuous_out/discrete_out over anchor,positive,negative sequences
         # TODO so that we get a better loss that is input into triplet loss?
-        summary = self.summariser(continuous_out, tgt_lengths)["final_timestep_hidden"]
 
         net_output = {
             "continuous_out": continuous_out, # represent pronunciations
-            "summary": summary, # single timestep summary of pronunciations used to calculate triplet loss
+            "tgt_lengths": tgt_lengths, # TODO is this line needed?
         }
+
+        if self.cfg.sequence_loss_method == "summariser":
+            summary = self.summariser(continuous_out, tgt_lengths)["final_timestep_hidden"]
+            net_output["summary"] = summary
+
         return net_output
 
 def get_initialised_embedding(num_embeddings, embedding_dim, padding_idx):
