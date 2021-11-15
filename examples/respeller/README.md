@@ -1,14 +1,19 @@
 # Install/setup conda env and fairseq
 
+Install huggingface for getting CTC outputs
+
 ```bash
 conda update -y -n base -c defaults conda
-conda env remove -y --name fairseq
-conda create -y -n fairseq python=3.7 # python must be <=3.7 for tensorflow 1.15 to work
-conda activate fairseq
-conda install ipython # ensures that jupyter can find env python packages
+conda env remove -y --name huggingface
+conda create -y -n huggingface python=3.8 # python must be <=3.8 for pytorch to work
+conda activate huggingface
 pip install --upgrade pip
-pip install jupyter # ensures that jupyter can find env python packages
 conda install -y pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch # works with ILCC cluster 2080Ti GPU
+pip install transformers datasets soundfile jupyterlab ipywidgets librosa
+
+
+conda install ipython # ensures that jupyter can find env python packages
+pip install jupyter # ensures that jupyter can find env python packages
 #conda install -y -c conda-forge librosa
 #pip install -r requirements.txt
 
@@ -19,14 +24,6 @@ conda install ipywidgets
 python -m ipykernel install --user --name fairseq --display-name "Python (fairseq)"
 pip install jupyterlab
 pip install torchdistill
-```
-
-# Install fairseq
-```bash
-cd fairseq
-pip install --editable ./
-pip install pyarrow
-pip install tensorboard
 ```
 
 # Setup data speech reps
@@ -235,7 +232,7 @@ ssh s1785140@escience6.inf.ed.ac.uk # replace s1785140 with your dice username
 srun --part=ILCC_GPU,CDT_GPU --gres=gpu:gtx2080ti:1 --cpus-per-task=1 --mem=8000 --pty bash
 conda activate word-templates
 cd word-templates # (optional) go to project root to change the 'cwd' of jupyter
-jupyter notebook --no-browser --ip=0.0.0.0 # or jupyter-lab --no-browser --ip=0.0.0.0
+jupyter-lab --no-browser --ip=0.0.0.0 # or jupyter-lab --no-browser --ip=0.0.0.0
 ```
 
 2. Find the notebook URL related to the node that you were assigned. For example in the example below the correct link is `http://duflo.inf.ed.ac.uk:8888/?token=95dd3ae95c8d91c466405cbcaf8114e944b85d731b481183`
