@@ -28,7 +28,33 @@ pip install jupyterlab
 pip install torchdistill
 ```
 
-# Setup data speech reps
+# Setup TTS data 
+
+(from https://github.com/pytorch/fairseq/blob/main/examples/speech_synthesis/docs/ljspeech_example.md)
+
+```bash
+cd /home/s1785140/data/LJSpeech-1.1/
+
+mkdir audio_data
+mkdir audio_manifest
+mkdir feature_manifest
+
+AUDIO_DATA_ROOT=/home/s1785140/data/LJSpeech-1.1/audio_data
+AUDIO_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/audio_manifest
+
+python -m examples.speech_synthesis.preprocessing.get_ljspeech_audio_manifest \
+  --output-data-root ${AUDIO_DATA_ROOT} \
+  --output-manifest-root ${AUDIO_MANIFEST_ROOT}
+
+FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
+
+python -m examples.speech_synthesis.preprocessing.get_feature_manifest \
+  --audio-manifest-root ${AUDIO_MANIFEST_ROOT} \
+  --output-root ${FEATURE_MANIFEST_ROOT}
+  # --ipa-vocab --use-g2p # commented out as we want raw grapeheme inputs for TAC
+```
+
+# Setup Speech Reps data
 
 1) obtain discretised speech reps
 https://github.com/pytorch/fairseq/tree/master/examples/textless_nlp/gslm/speech2unit
@@ -81,6 +107,24 @@ centroids = kmeans_model.cluster_centers_
 # install reqs
 
 # Train model
+
+
+
+```bash
+FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
+MODEL_NAME=test_tac
+SAVE_DIR=checkpoints/$MODEL_NAME
+fairseq-train ${FEATURE_MANIFEST_ROOT} --save-dir ${SAVE_DIR} \
+  --config-yaml config.yaml --train-subset train --valid-subset dev \
+  --num-workers 4 --max-tokens 30000 --max-update 200000 \
+  --task text_to_speech --criterion tacotron2 --arch tts_transformer \
+  --clip-norm 5.0 --n-frames-per-step 4 --bce-pos-weight 5.0 \
+  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
+  --encoder-normalize-before --decoder-normalize-before \
+  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
+  --seed 1 --update-freq 8 --eval-inference --best-checkpoint-metric mcd_loss
+```
+
 
 ```bash
 DATA=/home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/word_level/

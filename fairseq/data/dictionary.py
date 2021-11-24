@@ -31,10 +31,10 @@ class Dictionary:
         self.symbols = []
         self.count = []
         self.indices = {}
-        self.bos_index = self.add_symbol(bos)
-        self.pad_index = self.add_symbol(pad)
-        self.eos_index = self.add_symbol(eos)
-        self.unk_index = self.add_symbol(unk)
+        self.bos_index = self.add_symbol(bos) # idx 0
+        self.pad_index = self.add_symbol(pad) # idx 1
+        self.eos_index = self.add_symbol(eos) # idx 2
+        self.unk_index = self.add_symbol(unk) # idx 3
         if extra_special_symbols:
             for s in extra_special_symbols:
                 self.add_symbol(s)

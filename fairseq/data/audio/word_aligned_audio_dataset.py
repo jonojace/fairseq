@@ -490,5 +490,8 @@ def test():
 
 
 if __name__ == '__main__':
-    """python /home/s1785140/fairseq/fairseq/data/audio/word_aligned_audio_dataset.py"""
+    """
+    to test, run:
+        python /home/s1785140/fairseq/fairseq/data/audio/word_aligned_audio_dataset.py
+    """
     test()

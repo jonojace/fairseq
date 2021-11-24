@@ -93,18 +93,27 @@ class TextToSpeechDataset(SpeechToTextDataset):
         if len(samples) == 0:
             return {}
 
+        # sort items in batch by src length
         src_lengths, order = torch.tensor(
             [s.target.shape[0] for s in samples], dtype=torch.long
         ).sort(descending=True)
+
+        # index of utt in the corpus
         id_ = torch.tensor([s.index for s in samples],
                            dtype=torch.long).index_select(0, order)
-        feat = _collate_frames(
+
+        # collate audio (which is targets in TTS)
+        # _collate_frames performs zero padding to len of longest audio
+        audio_feat = _collate_frames(
             [s.source for s in samples], self.cfg.use_audio_input
         ).index_select(0, order)
+
+        # get audio original lens before zero padding
         target_lengths = torch.tensor(
             [s.source.shape[0] for s in samples], dtype=torch.long
         ).index_select(0, order)
 
+        # collate inputs (graphemes or phonemes for TTS)
         src_tokens = fairseq_data_utils.collate_tokens(
             [s.target for s in samples],
             self.tgt_dict.pad(),
@@ -113,17 +122,23 @@ class TextToSpeechDataset(SpeechToTextDataset):
             move_eos_to_beginning=False,
         ).index_select(0, order)
 
+        # speaker id
         speaker = None
         if self.speaker_to_id is not None:
             speaker = torch.tensor(
                 [s.speaker_id for s in samples], dtype=torch.long
             ).index_select(0, order).view(-1, 1)
 
-        bsz, _, d = feat.size()
+        # get time-shifted audio for teacher forced training of TTS decoder
+        bsz, _, d = audio_feat.size()
         prev_output_tokens = torch.cat(
-            (feat.new_zeros((bsz, 1, d)), feat[:, :-1, :]), dim=1
+            (audio_feat.new_zeros((bsz, 1, d)), audio_feat[:, :-1, :]), dim=1
         )
 
+        # get human readable version of TTS inputs
+        src_texts = [self.tgt_dict.string(samples[i].target) for i in order]
+
+        # handle inputs for fastspeech training (durations, pitches, energies)
         durations, pitches, energies = None, None, None
         if self.durations is not None:
             durations = fairseq_data_utils.collate_tokens(
@@ -138,7 +153,6 @@ class TextToSpeechDataset(SpeechToTextDataset):
             energies = _collate_frames([s.energy for s in samples], True)
             energies = energies.index_select(0, order)
             assert src_tokens.shape[1] == energies.shape[1]
-        src_texts = [self.tgt_dict.string(samples[i].target) for i in order]
 
         return {
             "id": id_,
@@ -148,7 +162,7 @@ class TextToSpeechDataset(SpeechToTextDataset):
                 "prev_output_tokens": prev_output_tokens,
             },
             "speaker": speaker,
-            "target": feat,
+            "target": audio_feat,
             "durations": durations,
             "pitches": pitches,
             "energies": energies,
@@ -177,6 +191,18 @@ class TextToSpeechDatasetCreator(SpeechToTextDatasetCreator):
         n_frames_per_step,
         speaker_to_id
     ) -> TextToSpeechDataset:
+        audio_paths, durations, energies, ids, n_frames, pitches, speakers, src_langs, src_texts, tgt_langs, tgt_texts = cls.get_tts_dataset_data(
+            cfg, samples)
+
+        return TextToSpeechDataset(
+            split_name, is_train_split, cfg, audio_paths, n_frames,
+            src_texts, tgt_texts, speakers, src_langs, tgt_langs, ids, tgt_dict,
+            pre_tokenizer, bpe_tokenizer, n_frames_per_step, speaker_to_id,
+            durations, pitches, energies
+        )
+
+    @classmethod
+    def get_tts_dataset_data(cls, cfg, samples):
         audio_root = Path(cfg.audio_root)
         ids = [s[cls.KEY_ID] for s in samples]
         audio_paths = [(audio_root / s[cls.KEY_AUDIO]).as_posix() for s in samples]
@@ -186,30 +212,21 @@ class TextToSpeechDatasetCreator(SpeechToTextDatasetCreator):
         speakers = [s.get(cls.KEY_SPEAKER, cls.DEFAULT_SPEAKER) for s in samples]
         src_langs = [s.get(cls.KEY_SRC_LANG, cls.DEFAULT_LANG) for s in samples]
         tgt_langs = [s.get(cls.KEY_TGT_LANG, cls.DEFAULT_LANG) for s in samples]
-
         durations = [s.get(cls.KEY_DURATION, None) for s in samples]
         durations = [
             None if dd is None else [int(d) for d in dd.split(" ")]
             for dd in durations
         ]
         durations = None if any(dd is None for dd in durations) else durations
-
         pitches = [s.get(cls.KEY_PITCH, None) for s in samples]
         pitches = [
             None if pp is None else (audio_root / pp).as_posix()
             for pp in pitches
         ]
         pitches = None if any(pp is None for pp in pitches) else pitches
-
         energies = [s.get(cls.KEY_ENERGY, None) for s in samples]
         energies = [
             None if ee is None else (audio_root / ee).as_posix()
             for ee in energies]
         energies = None if any(ee is None for ee in energies) else energies
-
-        return TextToSpeechDataset(
-            split_name, is_train_split, cfg, audio_paths, n_frames,
-            src_texts, tgt_texts, speakers, src_langs, tgt_langs, ids, tgt_dict,
-            pre_tokenizer, bpe_tokenizer, n_frames_per_step, speaker_to_id,
-            durations, pitches, energies
-        )
+        return audio_paths, durations, energies, ids, n_frames, pitches, speakers, src_langs, src_texts, tgt_langs, tgt_texts
