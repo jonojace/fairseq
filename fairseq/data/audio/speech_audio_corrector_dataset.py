@@ -98,8 +98,14 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
         ################################################################################################################
         # add SAC specific data structure to this dataset object
+        self.segment_pad_idx = 0
         self.ids2word_alignments = ids2word_alignments
         self.word2speechreps = get_word2speechreps(ids, ids2speechreps, ids2word_alignments)
+
+        # TODO WARNING!!! should make this a CLA! for debugging purposes
+        self.mask_all_speechreps = False
+        # self.mask_all_speechreps = True
+
         # TODO optionally save/load this data structure to disk, so can avoid this slow preprocessing step
 
     def __getitem__(self, index: int) -> SpeechAudioCorrectorDatasetItem:
@@ -129,9 +135,10 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
         # get the word position of each word and symbol in the input text sequence
         word_and_word_pos, word_pos_of_graphemes = get_word_pos(text_tokenized,
+                                                                padding_idx=self.tgt_dict.pad_index,
                                                                 bpe_whitespace_tok="▁",
                                                                 boundary_same_pos=True,
-                                                                append_eos=False, boundary_pos=0)
+                                                                append_eos=False, eos_symbol="</s>")
         #####################################################################[###########################################
         # Speech reps
         # retrieve speech reps for each word in mfa text, inserting a <sep> token in between each word-aligned speech rep chunk
@@ -152,6 +159,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
                                                            mask_token="<mask>")
         speechreps_masked = mask_according_to_word_pos(speechreps, word_pos_of_speechreps,
                                                            speechreps_mask_word_positions,
+                                                           mask_all_positions=self.mask_all_speechreps,
                                                            mask_token="<mask>")
         ################################################################################################################
         # Encode graphemes and speech reps
@@ -177,7 +185,8 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ################################################################################################################
         # Create segment information tensor (0 is text, 1 is speechrep)
         segment = torch.zeros(target.size()).long()
-        segment[text_len:] = 1
+        segment[:text_len] = self.segment_pad_idx + 1 # if pad_idx == 0, then text gets idx 1
+        segment[text_len:] = self.segment_pad_idx + 2 # if pad_idx == 0, then speechreps gets idx 2
 
         return SpeechAudioCorrectorDatasetItem(
             index=index, source=t2s.source,
@@ -191,16 +200,36 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         if len(samples) == 0:
             return {}
 
-        print(f"len(samples)/batch_sz == {len(samples)}")
+        # print(f"in collater(), len(samples) AKA batch_sz == {len(samples)}")
 
         ################################################################################################################
-        # Audio outputs
+        # Text and speechreps inputs
 
-        # TODO should we be sorting by target length instead???
-        # sort items in batch by src length
+        # sort items in batch by len of graphemes+speechreps
         src_lengths, order = torch.tensor(
             [s.target.shape[0] for s in samples], dtype=torch.long
         ).sort(descending=True)
+
+        # inputs (graphemes concatenated with speechreps for speech audio corrector training)
+        src_tokens = fairseq_data_utils.collate_tokens(
+            [s.target for s in samples],
+            self.tgt_dict.pad(),
+        ).index_select(0, order)
+
+        # word positions
+        src_word_pos = fairseq_data_utils.collate_tokens(
+            [s.word_pos for s in samples],
+            self.tgt_dict.pad(),
+        ).index_select(0, order)
+
+        # segments
+        src_segments = fairseq_data_utils.collate_tokens(
+            [s.segment for s in samples],
+            self.segment_pad_idx,
+        ).index_select(0, order)
+
+        ################################################################################################################
+        # Audio outputs
 
         # collate audio (which is targets in TTS)
         # _collate_frames performs zero padding to len of longest audio
@@ -212,22 +241,6 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         target_lengths = torch.tensor(
             [s.source.shape[0] for s in samples], dtype=torch.long
         ).index_select(0, order)
-
-        ################################################################################################################
-        # Text and speechreps inputs
-
-        # inputs (graphemes concatenated with speechreps for speech audio corrector training)
-        src_tokens = fairseq_data_utils.collate_tokens(
-            [s.target for s in samples],
-            self.tgt_dict.pad(),
-            self.tgt_dict.eos(),
-            left_pad=False,
-            move_eos_to_beginning=False,
-        ).index_select(0, order)
-
-        # word positions
-
-        # segments
 
         ################################################################################################################
         # Misc.
@@ -256,6 +269,8 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             "id": id_,
             "net_input": {
                 "src_tokens": src_tokens,
+                "src_word_pos": src_word_pos,
+                "src_segments": src_segments,
                 "src_lengths": src_lengths,
                 "prev_output_tokens": prev_output_tokens,
             },

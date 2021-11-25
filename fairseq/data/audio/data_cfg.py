@@ -11,6 +11,7 @@ class S2TDataConfig(object):
     """Wrapper class for data config YAML"""
 
     def __init__(self, yaml_path: Path):
+        print("S2TDataConfig yaml_path", yaml_path)
         try:
             import yaml
         except ImportError:

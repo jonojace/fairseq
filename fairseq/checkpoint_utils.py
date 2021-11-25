@@ -43,7 +43,7 @@ def save_checkpoint(cfg: CheckpointConfig, trainer, epoch_itr, val_loss):
         best_function = max if cfg.maximize_best_checkpoint_metric else min
         # print("DEBUG in save_checkpoint()", val_loss, prev_best)
         # print("in save_checkpoint()", val_loss.device, prev_best.device)
-        prev_best = prev_best.to(val_loss.device)
+        # # prev_best = prev_best.to(val_loss.device)
         # print("AFTER MOVING in save_checkpoint()", val_loss.device, prev_best.device)
         save_checkpoint.best = best_function(val_loss, prev_best)
 

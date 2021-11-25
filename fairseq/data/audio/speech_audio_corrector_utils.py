@@ -39,8 +39,9 @@ def get_word2speechreps(ids, ids2speechreps, ids2word_alignments):
 def get_mfa_text(word_align):
     return " ".join(w['wordtype'] for w in word_align)
 
-def get_word_pos(graphemes, bpe_whitespace_tok="▁", boundary_same_pos=True,
-                 append_eos=False, eos_symbol = "</s>", boundary_pos=0):
+
+def get_word_pos(graphemes, padding_idx, bpe_whitespace_tok="▁", boundary_same_pos=True,
+                 append_eos=False, eos_symbol="</s>", boundary_start_pos=None):
     """
     for some space delimited sequence of symbols (e.g. text)
 
@@ -49,27 +50,47 @@ def get_word_pos(graphemes, bpe_whitespace_tok="▁", boundary_same_pos=True,
     and also word pos of each grapheme in the seq (a list of the same length,
     of ints representing the words that each symbol / whitespace corresponds to)
 
+    by default the boundary start position is initiated as padding_idx + 1
+    and then word counts start from that value
+
     args:
         text: str of space delimited graphemes in the utterance ('_' denotes whitespace in the original utterance)
               e.g. "_ h o w _ a r e _ y o u" this is the format returned by sentence piece tokeniser
 
     e.g.
     _ h o w _ a r e _ y o u
-    [('how', 1), ('are', 3), ('you', 5)]
-    0 1 1 1 2 3 3 3 4 5 5 5
+        padding_idx == 1
+        boundary_start_pos == 2
+        boundary_same_pos == True
 
-    "boundary_same_pos==True", give the same pos to all interword whitespace tokens
-    _ h o w _ a r e _ y o u
-    0 1 1 1 0 2 2 2 0 3 3 3
+        before padding:
+            [('how', 3), ('are', 4), ('you', 5)]
+            [2, 3, 3, 3, 2, 4, 4, 4, 2, 5, 5, 5, 6]
+        after concat with speechreps and padding (not performed in this fn, performed in SAC dataset collater):
+            [2, 3, 3, 3, 2, 4, 4, 4, 2, 5, 5, 5, 6, <speechreps>, 1, 1, 1, ...]
 
-    "with_eos==True", incl. pos for the EOS token
     _ h o w _ a r e _ y o u
-    0 1 1 1 0 2 2 2 0 3 3 3 4
+        padding_idx == 1
+        boundary_start_pos == 2
+        boundary_same_pos == False
+
+        before padding:
+            [('how', 3), ('are', 5), ('you', 7)]
+            [2, 3, 3, 3, 4, 5, 5, 5, 6, 7, 7, 7, 8]
+        after concat with speechreps and padding (not performed in this fn, performed in SAC dataset collater):
+            [2, 3, 3, 3, 4, 5, 5, 5, 6, 7, 7, 7, 8, <speechreps>, 1, 1, 1, ...]
     """
     # double check that we are dealing with a seq output by bpe tokenizer
     assert graphemes[0] == bpe_whitespace_tok, f"graphemes == {graphemes}"
 
-    word_count = 0
+    if boundary_start_pos is None:
+        boundary_start_pos = padding_idx + 1
+
+    if boundary_same_pos:
+        word_count = boundary_start_pos
+    else:
+        word_count = padding_idx
+
     word_and_word_pos = []
     word_pos_of_graphemes = []
     current_word = ""
@@ -78,7 +99,7 @@ def get_word_pos(graphemes, bpe_whitespace_tok="▁", boundary_same_pos=True,
         # reached the last symbol of the utt
         if c == eos_symbol:
             word_and_word_pos.append((current_word, word_count))  # add last word
-            word_pos_of_graphemes.append(word_count+1)
+            word_pos_of_graphemes.append(word_count + 1)
 
         # whitespace
         elif c == bpe_whitespace_tok:
@@ -86,7 +107,7 @@ def get_word_pos(graphemes, bpe_whitespace_tok="▁", boundary_same_pos=True,
                 word_and_word_pos.append((current_word, word_count))
                 current_word = ""
             if boundary_same_pos:
-                word_pos_of_graphemes.append(boundary_pos)
+                word_pos_of_graphemes.append(boundary_start_pos)
             else:
                 word_count += 1  # because we count each whitespace_tok as a new word position
                 word_pos_of_graphemes.append(word_count)
@@ -100,8 +121,6 @@ def get_word_pos(graphemes, bpe_whitespace_tok="▁", boundary_same_pos=True,
 
     if append_eos:
         word_pos_of_graphemes.append(word_count + 1)
-
-    # assert len(graphemes) == len(word_pos_of_graphemes), f"{len(graphemes)} != {len(word_pos_of_graphemes)} {graphemes} {word_pos_of_graphemes}"
 
     return word_and_word_pos, word_pos_of_graphemes
 
@@ -240,14 +259,14 @@ def get_speechreps_for_utt(word_and_word_pos, utt_id, word2speechreps,
 
     return speechreps, speechreps_word_pos
 
-def prepend_speechreps_for_dict_encoding(speechreps, prepend_str, ignore_eos, eos_symbol):
+def prepend_speechreps_for_dict_encoding(speechreps, prepend_str="HUB", ignore_eos=True, eos_symbol="</s>"):
     """
     take list of hubert codes (int from 0 to K-1 where K is number of k-means clusters)
     return a string version suitable for dictionary encoding
     """
     new_speechreps = []
     for x in speechreps:
-        if x == eos_symbol:
+        if ignore_eos and x == eos_symbol:
             new_speechreps.append(x)
         else:
             new_speechreps.append(f"{prepend_str}{x}")
@@ -266,11 +285,11 @@ def two_random_partitions(indices, p=0.5):
             set2.add(idx)
     return set1, set2
 
-def mask_according_to_word_pos(x, word_positions, word_positions_to_mask, mask_token="<mask>"):
+def mask_according_to_word_pos(x, word_positions, word_positions_to_mask, mask_all_positions=False, mask_token="<mask>"):
     """mask timesteps in x that correspond to word positions that we wish to mask"""
     masked_x = []
     for token, word_pos in zip(x, word_positions):
-        if word_pos in word_positions_to_mask:
+        if word_pos in word_positions_to_mask or mask_all_positions:
             masked_x.append(mask_token)
         else:
             masked_x.append(token)

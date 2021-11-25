@@ -34,10 +34,11 @@ def Embedding(num_embeddings, embedding_dim):
     return m
 
 
-class TTSTransformerEncoder(FairseqEncoder):
+class SACTransformerEncoder(FairseqEncoder):
     def __init__(self, args, src_dict, embed_speaker):
         super().__init__(src_dict)
         self.padding_idx = src_dict.pad()
+        self.segment_pad_idx = 0 # 0: pad, 1: graphemes, 2: speechreps
         self.embed_speaker = embed_speaker
         self.spk_emb_proj = None
         if embed_speaker is not None:
@@ -51,6 +52,10 @@ class TTSTransformerEncoder(FairseqEncoder):
         )
         self.embed_tokens = nn.Embedding(len(src_dict), args.encoder_embed_dim,
                                          padding_idx=self.padding_idx)
+        num_segments = 2 # grapheme and speechreps segments
+        self.embed_segments = nn.Embedding(num_segments + 1, # +1 for the padding symbol
+                                           args.encoder_embed_dim,
+                                           padding_idx=self.segment_pad_idx)
         assert(args.encoder_conv_kernel_size % 2 == 1)
         self.prenet = nn.ModuleList(
             nn.Sequential(
@@ -69,7 +74,13 @@ class TTSTransformerEncoder(FairseqEncoder):
         self.embed_positions = PositionalEmbedding(
             args.max_source_positions, args.encoder_embed_dim, self.padding_idx
         )
+        self.morph_word_pos = nn.Linear(
+            args.encoder_embed_dim, args.encoder_embed_dim
+        )
+
+        self.seg_emb_alpha = nn.Parameter(torch.ones(1))
         self.pos_emb_alpha = nn.Parameter(torch.ones(1))
+        self.word_pos_emb_alpha = nn.Parameter(torch.ones(1))
 
         self.transformer_layers = nn.ModuleList(
             TransformerEncoderLayer(args)
@@ -82,7 +93,14 @@ class TTSTransformerEncoder(FairseqEncoder):
 
         self.apply(encoder_init)
 
-    def forward(self, src_tokens, src_lengths=None, speaker=None, **kwargs):
+    def forward(self, src_tokens, src_word_pos, src_segments, src_lengths=None, speaker=None, **kwargs):
+        ################################################################################################################
+        # Create inputs
+
+        # print("in forward() of sac_transformer")
+        # print("b_sz", src_tokens.size(0))
+
+        # graphemes+speechreps
         x = self.embed_tokens(src_tokens)
         x = x.transpose(1, 2).contiguous()  # B x T x C -> B x C x T
         for conv in self.prenet:
@@ -90,16 +108,32 @@ class TTSTransformerEncoder(FairseqEncoder):
         x = x.transpose(1, 2).contiguous()  # B x C x T -> B x T x C
         x = self.prenet_proj(x)
 
-        padding_mask = src_tokens.eq(self.padding_idx)
-        positions = self.embed_positions(padding_mask)
-        x += self.pos_emb_alpha * positions
+        # segment information (text or speechreps segment)
+        embedded_src_segments = self.embed_segments(src_segments)
+        x += self.seg_emb_alpha * embedded_src_segments
+
+        # token positions
+        graphemes_and_speechreps_padding_mask = src_tokens.eq(self.padding_idx) # note that this only pads after speechreps
+        # print("graphemes_and_speechreps_padding_mask", graphemes_and_speechreps_padding_mask)
+        embedded_token_positions = self.embed_positions(graphemes_and_speechreps_padding_mask)
+        x += self.pos_emb_alpha * embedded_token_positions
+
+        # word positions
+        embedded_word_positions = self.embed_positions(src_word_pos, positions=src_word_pos)
+        morphed_word_positions = self.morph_word_pos(embedded_word_positions)
+        x += self.word_pos_emb_alpha * morphed_word_positions
+
+        ################################################################################################################
+        # Pass inputs through model
+
+        # input dropout
         x = self.dropout_module(x)
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
         for layer in self.transformer_layers:
-            x = layer(x, padding_mask)
+            x = layer(x, graphemes_and_speechreps_padding_mask)
 
         if self.layer_norm is not None:
             x = self.layer_norm(x)
@@ -110,9 +144,17 @@ class TTSTransformerEncoder(FairseqEncoder):
             emb = emb.expand(seq_len, bsz, -1)
             x = self.spk_emb_proj(torch.cat([x, emb], dim=2))
 
+        ################################################################################################################
+        # Create a new padding mask for the transformer decoder that pads out the speechreps sequence so that
+        # the transformer decoder cannot attend over those output timesteps, and instead can only attend
+        # over timesteps that correspond to the input graphemes
+        grapheme_segment_idx = 1 # pad idx is 0, speechreps idx is 2
+        graphemes_padding_mask = src_segments.ne(grapheme_segment_idx) # pad everything BUT the graphemes
+        # print("graphemes_padding_mask", graphemes_padding_mask)
+
         return {
             "encoder_out": [x],  # T x B x C
-            "encoder_padding_mask": [padding_mask] if padding_mask.any() else [],  # B x T
+            "encoder_padding_mask": [graphemes_padding_mask] if graphemes_padding_mask.any() else [],  # B x T
             "encoder_embedding": [],  # B x T x C
             "encoder_states": [],  # List[T x B x C]
             "src_tokens": [],
@@ -176,7 +218,11 @@ class TTSTransformerDecoder(FairseqIncrementalDecoder):
             target_lengths=None, speaker=None, **kwargs
     ):
         alignment_layer = self.n_transformer_layers - 1
+
+        #TODO modify mask so speechreps cannot be attended to by decoder
         self_attn_padding_mask = lengths_to_padding_mask(target_lengths)
+
+        #TODO need to add word positions at this point too?
         positions = self.embed_positions(
             self_attn_padding_mask, incremental_state=incremental_state
         )
@@ -276,10 +322,14 @@ class TTSTransformerDecoder(FairseqIncrementalDecoder):
         return self._future_mask[:dim, :dim]
 
 
-@register_model("tts_transformer")
-class TTSTransformerModel(FairseqEncoderDecoderModel):
+@register_model("sac_transformer")
+class SACTransformerModel(FairseqEncoderDecoderModel):
     """
     Implementation for https://arxiv.org/pdf/1809.08895.pdf
+
+    Implementation of Speech Audio Corrector Transformer
+      Transformer encoder is modified so that it can also take speechreps as inputs
+      Word position information is also provided that aligns graphemes and speechreps that belong to the same word
     """
 
     @staticmethod
@@ -323,20 +373,33 @@ class TTSTransformerModel(FairseqEncoderDecoderModel):
     @classmethod
     def build_model(cls, args, task):
         embed_speaker = task.get_speaker_embeddings(args)
-        encoder = TTSTransformerEncoder(args, task.src_dict, embed_speaker)
+        encoder = SACTransformerEncoder(args, task.src_dict, embed_speaker)
         decoder = TTSTransformerDecoder(args, task.src_dict)
         return cls(encoder, decoder)
 
-    def forward_encoder(self, src_tokens, src_lengths, speaker=None, **kwargs):
-        return self.encoder(src_tokens, src_lengths=src_lengths,
-                            speaker=speaker, **kwargs)
+    def forward(self, src_tokens, src_word_pos, src_segments, src_lengths, prev_output_tokens, **kwargs):
+        """
+        SAC (Speech Audio Corrector):
+            override forward in FairseqEncoderDecoderModel in order to provide additional inputs for SAC
+            i.e. src_word_pos, src_segments
+        """
+        encoder_out = self.encoder(src_tokens, src_word_pos=src_word_pos,
+                                   src_segments=src_segments, src_lengths=src_lengths, **kwargs)
+        decoder_out = self.decoder(
+            prev_output_tokens, encoder_out=encoder_out, **kwargs
+        )
+        return decoder_out
+
+    def forward_encoder(self, src_tokens, src_word_pos, src_segments, src_lengths, speaker=None, **kwargs):
+        return self.encoder(src_tokens, src_word_pos=src_word_pos,
+                            src_segments=src_segments, src_lengths=src_lengths, speaker=speaker, **kwargs)
 
     def set_num_updates(self, num_updates):
         super().set_num_updates(num_updates)
         self._num_updates = num_updates
 
 
-@register_model_architecture("tts_transformer", "tts_transformer")
+@register_model_architecture("sac_transformer", "sac_transformer")
 def base_architecture(args):
     args.dropout = getattr(args, "dropout", 0.1)
     args.output_frame_dim = getattr(args, "output_frame_dim", 80)

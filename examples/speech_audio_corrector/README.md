@@ -54,19 +54,89 @@ python -m examples.speech_synthesis.preprocessing.get_feature_manifest \
   # --ipa-vocab --use-g2p # commented out as we want raw grapeheme inputs for TAC
 ```
 
-# Training command (for debugging)
+# Vanilla TTS training command
 ```bash
+NUM_GPUS=4
+srun --part=ILCC_GPU,CDT_GPU --gres=gpu:$NUM_GPUS --cpus-per-task=2 --mem=16000 --exclude=duflo,arnold --pty bash
+SAVE_DIR=test_tts
 FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
-SAVE_DIR=test_sac
 fairseq-train ${FEATURE_MANIFEST_ROOT} --save-dir ${SAVE_DIR} \
+  --tensorboard-logdir tb_logs/$MODEL_NAME
   --config-yaml config.yaml --train-subset train --valid-subset dev \
-  --num-workers 4 --max-tokens 30000 --max-update 200000 \
-  --task speech_audio_corrector --criterion tacotron2 --arch tts_transformer \
+  --num-workers 2 --max-tokens 25000 --max-update 200000 \
+  --task text_to_speech --criterion tacotron2 --arch tts_transformer \
   --clip-norm 5.0 --n-frames-per-step 4 --bce-pos-weight 5.0 \
   --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
   --encoder-normalize-before --decoder-normalize-before \
   --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
-  --seed 1 --update-freq 8 --eval-inference --best-checkpoint-metric mcd_loss
+  --seed 1 --update-freq 2 --eval-inference --best-checkpoint-metric mcd_loss
+```
+
+# Choosing max tokens and update freq depending on number of GPUs
+
+## default single gpu training for transformer TTS
+default 30000 max tokens x 8 update frequency = 240000 tokens per update
+
+## getting to new values for multigpu training
+
+30000 max tokens per device results in OOM
+want to reduce to 20000 per device
+
+keep 240000 tokens per update as constant
+
+4 gpus
+
+240000 / (20000*4) = 3 
+
+therefore set update freq to 3
+
+# Training command (for debugging)
+```bash
+##################################################################################################
+# Get suitable GPU node
+NUM_GPUS=4
+CPUS_PER_TASK=2
+MEM=16000
+EXCLUDE=duflo,arnold
+#srun --part=ILCC_GPU,CDT_GPU --gres=gpu:$NUM_GPUS --cpus-per-task=2 --mem=16000 --exclude=duflo,arnold --pty bash
+srun --part=ILCC_GPU,CDT_GPU --gres=gpu:gtx2080ti:$NUM_GPUS --cpus-per-task=$CPUS_PER_TASK --mem=$MEM --exclude=$EXCLUDE --pty bash
+
+##################################################################################################
+# Set training params
+source activate_fairseq.sh
+NUM_GPUS=4
+UPDATE_FREQ=3 # =$((8/$NUM_GPUS))
+echo update freq is $UPDATE_FREQ
+MAX_TOKENS=20000 # 30000 is default for transformer TTS
+MAX_SENTENCES=NULL # TODO use this to help control mem usage?
+FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
+
+##################################################################################################
+# Run training for different experiments
+MODEL_NAME=test_sac_normal_masking2
+fairseq-train ${FEATURE_MANIFEST_ROOT} --save-dir checkpoints/$MODEL_NAME \
+  --tensorboard-logdir tb_logs/$MODEL_NAME \
+  --config-yaml config.yaml --train-subset train --valid-subset dev \
+  --num-workers 2 --max-tokens $MAX_TOKENS --max-update 200000 \
+  --task speech_audio_corrector --criterion sac_tts --arch sac_transformer \
+  --clip-norm 5.0 --n-frames-per-step 4 --bce-pos-weight 5.0 \
+  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
+  --encoder-normalize-before --decoder-normalize-before \
+  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
+  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss  
+  #--eval-inference --best-checkpoint-metric mcd_lossmetric mcd_loss
+  
+MODEL_NAME=test_sac_mask_all_speechreps
+fairseq-train ${FEATURE_MANIFEST_ROOT} --save-dir checkpoints/$MODEL_NAME \
+  --tensorboard-logdir tb_logs/$MODEL_NAME \
+  --config-yaml config.yaml --train-subset train --valid-subset dev \
+  --num-workers 2 --max-tokens $MAX_TOKENS --max-update 200000 \
+  --task speech_audio_corrector --criterion sac_tts --arch sac_transformer \
+  --clip-norm 5.0 --n-frames-per-step 4 --bce-pos-weight 5.0 \
+  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
+  --encoder-normalize-before --decoder-normalize-before \
+  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
+  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
 ```
 
 # Setup Speech Reps data
