@@ -91,6 +91,8 @@ class SACTransformerEncoder(FairseqEncoder):
         else:
             self.layer_norm = None
 
+        self.mask_speech_timesteps = args.mask_speech_timesteps
+
         self.apply(encoder_init)
 
     def forward(self, src_tokens, src_word_pos, src_segments, src_lengths=None, speaker=None, **kwargs):
@@ -111,10 +113,10 @@ class SACTransformerEncoder(FairseqEncoder):
         # segment information (text or speechreps segment)
         embedded_src_segments = self.embed_segments(src_segments)
         x += self.seg_emb_alpha * embedded_src_segments
+        # x += embedded_src_segments # TODO turn off weight on segment embeddings?
 
         # token positions
         graphemes_and_speechreps_padding_mask = src_tokens.eq(self.padding_idx) # note that this only pads after speechreps
-        # print("graphemes_and_speechreps_padding_mask", graphemes_and_speechreps_padding_mask)
         embedded_token_positions = self.embed_positions(graphemes_and_speechreps_padding_mask)
         x += self.pos_emb_alpha * embedded_token_positions
 
@@ -148,13 +150,16 @@ class SACTransformerEncoder(FairseqEncoder):
         # Create a new padding mask for the transformer decoder that pads out the speechreps sequence so that
         # the transformer decoder cannot attend over those output timesteps, and instead can only attend
         # over timesteps that correspond to the input graphemes
-        grapheme_segment_idx = 1 # pad idx is 0, speechreps idx is 2
-        graphemes_padding_mask = src_segments.ne(grapheme_segment_idx) # pad everything BUT the graphemes
-        # print("graphemes_padding_mask", graphemes_padding_mask)
+        if self.mask_speech_timesteps:
+            grapheme_segment_idx = 1 # pad idx is 0, speechreps idx is 2
+            graphemes_padding_mask = src_segments.ne(grapheme_segment_idx) # pad everything BUT the graphemes (1 indicate to pad a position)
+            encoder_padding_mask = graphemes_padding_mask
+        else:
+            encoder_padding_mask = graphemes_and_speechreps_padding_mask
 
         return {
             "encoder_out": [x],  # T x B x C
-            "encoder_padding_mask": [graphemes_padding_mask] if graphemes_padding_mask.any() else [],  # B x T
+            "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any() else [],  # B x T
             "encoder_embedding": [],  # B x T x C
             "encoder_states": [],  # List[T x B x C]
             "src_tokens": [],
@@ -350,6 +355,10 @@ class SACTransformerModel(FairseqEncoderDecoderModel):
         parser.add_argument("--attention-dropout", type=float)
         parser.add_argument("--activation-dropout", "--relu-dropout", type=float)
         parser.add_argument("--activation-fn", type=str, default="relu")
+        # Encoder outputs masking
+        parser.add_argument("--mask-speech-timesteps", action='store_true',
+                            help='by default decoder can attend to encoder timesteps of graphemes and speech,'
+                                 'can optionally only attend to grapheme timesteps by masking speech timesteps.')
         # decoder prenet
         parser.add_argument("--prenet-dropout", type=float)
         parser.add_argument("--prenet-layers", type=int)
@@ -417,6 +426,8 @@ def base_architecture(args):
     args.attention_dropout = getattr(args, "attention_dropout", 0.0)
     args.activation_dropout = getattr(args, "activation_dropout", 0.0)
     args.activation_fn = getattr(args, "activation_fn", "relu")
+    # Encoder outputs masking
+    args.mask_speech_timesteps = getattr(args, "mask_speech_timesteps", False)
     # decoder prenet
     args.prenet_dropout = getattr(args, "prenet_dropout", 0.5)
     args.prenet_layers = getattr(args, "prenet_layers", 2)

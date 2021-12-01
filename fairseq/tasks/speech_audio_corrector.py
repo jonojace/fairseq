@@ -37,7 +37,6 @@ except ImportError:
     logger.info("Please install tensorboardX: pip install tensorboardX")
     SummaryWriter = None
 
-
 @register_task('speech_audio_corrector')
 class SpeechAudioCorrectorTask(TextToSpeechTask):
     def __init__(self, args, src_dict):
@@ -63,5 +62,6 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
             pre_tokenizer, bpe_tokenizer, is_train_split=is_train_split,
             epoch=epoch, seed=self.args.seed,
             n_frames_per_step=self.args.n_frames_per_step,
-            speaker_to_id=self.speaker_to_id
+            speaker_to_id=self.speaker_to_id,
         )
+

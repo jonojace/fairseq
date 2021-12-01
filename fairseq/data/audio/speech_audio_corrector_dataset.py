@@ -138,7 +138,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
                                                                 padding_idx=self.tgt_dict.pad_index,
                                                                 bpe_whitespace_tok="▁",
                                                                 boundary_same_pos=True,
-                                                                append_eos=False, eos_symbol="</s>")
+                                                                append_eos=False)
         #####################################################################[###########################################
         # Speech reps
         # retrieve speech reps for each word in mfa text, inserting a <sep> token in between each word-aligned speech rep chunk
@@ -146,10 +146,10 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             word_and_word_pos, utt_id, self.word2speechreps,
             randomise_examples=False, remove_dup_prob=1.0,
             remove_dup_rand_num=False, dropout_p=0.0,
-            append_eos=True, eos_symbol="</s>",
+            append_eos=True, eos_symbol=eos_symbol,
         )
         speechreps = prepend_speechreps_for_dict_encoding(speechreps, prepend_str="HUB",
-                                                          ignore_eos=True, eos_symbol="</s>")
+                                                          ignore_eos=True, eos_symbol=eos_symbol)
         ################################################################################################################
         # Perform complimentary masking at the word level
         word_positions = [word_pos for wordtype, word_pos in word_and_word_pos]
