@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
 
 import numpy as np
@@ -37,6 +37,7 @@ class SpeechAudioCorrectorDatasetItem(TextToSpeechDatasetItem):
     text_len: int = -1
     speechreps_len: int = -1
     segment: torch.Tensor = None
+    words_and_speechreps: List[Tuple] = None
 
 class SpeechAudioCorrectorDataset(TextToSpeechDataset):
     def __init__(
@@ -142,7 +143,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         #####################################################################[###########################################
         # Speech reps
         # retrieve speech reps for each word in mfa text, inserting a <sep> token in between each word-aligned speech rep chunk
-        speechreps, word_pos_of_speechreps = get_speechreps_for_utt(
+        speechreps, word_pos_of_speechreps, word_wordpos_speechreps_tup = get_speechreps_for_utt(
             word_and_word_pos, utt_id, self.word2speechreps,
             randomise_examples=False, remove_dup_prob=1.0,
             remove_dup_rand_num=False, dropout_p=0.0,
@@ -161,26 +162,31 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
                                                            speechreps_mask_word_positions,
                                                            mask_all_positions=self.mask_all_speechreps,
                                                            mask_token="<mask>")
+        # print("text_tokenized", text_tokenized)
+        # print("text_tokenized_masked", text_tokenized_masked)
         ################################################################################################################
         # Encode graphemes and speech reps
         # encode text into int indices, one for each grapheme (incl. whitespace)
-        target = self.tgt_dict.encode_line(
+        encoded_text = self.tgt_dict.encode_line(
                 bpe_token_delimiter.join(text_tokenized_masked), add_if_not_exist=False, append_eos=False
         ).long()
-        assert len(word_pos_of_graphemes) == len(target), f"{len(word_pos_of_graphemes)} != {len(target)}"
+        assert len(word_pos_of_graphemes) == len(encoded_text), f"{len(word_pos_of_graphemes)} != {len(encoded_text)}"
 
         # encode hubert codes into int indices, one for each hubert code
         encoded_speechreps = self.tgt_dict.encode_line(
                 bpe_token_delimiter.join(speechreps_masked), add_if_not_exist=False, append_eos=False
         ).long()
         assert len(word_pos_of_speechreps) == len(encoded_speechreps), f"{len(word_pos_of_speechreps)} != {len(encoded_speechreps)}"
+
+        # print("encoded_text", encoded_text)
+        # print("encoded_speechreps", encoded_speechreps)
         ################################################################################################################
         # Get length information for text and speechreps
-        text_len = len(target)
+        text_len = len(encoded_text)
         speechreps_len = len(encoded_speechreps)
         ################################################################################################################
         # Concat encoded text to encoded hubert codes for Speech Audio Corrector transformer inputs
-        target = torch.cat([target, encoded_speechreps])
+        target = torch.cat([encoded_text, encoded_speechreps])
         word_pos_all_timesteps = torch.LongTensor(word_pos_of_graphemes + word_pos_of_speechreps)
         ################################################################################################################
         # Create segment information tensor (0 is text, 1 is speechrep)
@@ -188,12 +194,24 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         segment[:text_len] = self.segment_pad_idx + 1 # if pad_idx == 0, then text gets idx 1
         segment[text_len:] = self.segment_pad_idx + 2 # if pad_idx == 0, then speechreps gets idx 2
 
+        ###############################################################################################################
+        # for ease of eval create list of tuples
+        # a word and its speech reps (if it was masked)
+        # otherwise a word and None if it wasn't masked
+        words_and_speechreps = []
+        for word, wordpos, speechreps in word_wordpos_speechreps_tup:
+            if wordpos in text_mask_word_positions:
+                words_and_speechreps.append((word, speechreps))
+            else:
+                words_and_speechreps.append((word, None))
+            
+
         return SpeechAudioCorrectorDatasetItem(
             index=index, source=t2s.source,
             target=target, speaker_id=t2s.speaker_id,
             word_pos=word_pos_all_timesteps,
             text_len=text_len, speechreps_len=speechreps_len,
-            segment=segment,
+            segment=segment, words_and_speechreps=words_and_speechreps,
         )
 
     def collater(self, samples: List[SpeechAudioCorrectorDatasetItem]) -> Dict[str, Any]:
@@ -259,7 +277,14 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         )
 
         # get human readable version of TTS inputs
-        src_texts = [self.tgt_dict.string(samples[i].target) for i in order]
+        # examining this is a good way of double checking what the model sees as input,
+        # and verify it doesn't cheat or get more information than it should
+        # i.e. what words are graphemes, what words are hubert codes.
+        src_texts = [self.tgt_dict.string(samples[i].target, include_eos=True) for i in order]
+
+        # to help with SAC friendly filename formatting in fairseq/examples/speech_audio_corrector/generate_waveform_sac.py
+        # to indicate what words were masked, and if masked what the speech reps were
+        words_and_speechreps = [samples[i].words_and_speechreps for i in order]
 
         # index of utt in the corpus
         id_ = torch.tensor([s.index for s in samples],
@@ -280,6 +305,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             "ntokens": sum(target_lengths).item(),
             "nsentences": len(samples),
             "src_texts": src_texts,
+            "words_and_speechreps": words_and_speechreps,
         }
 
 class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):

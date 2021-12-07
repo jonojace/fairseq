@@ -237,7 +237,7 @@ def get_speechreps_for_utt(word_and_word_pos, utt_id, word2speechreps,
         - remove duplicate codes
         - dropout codes
     """
-    speechreps, speechreps_word_pos, word_counter = [], [], Counter()
+    speechreps, speechreps_word_pos, word_and_speechreps, word_counter = [], [], [], Counter()
 
     for word, word_pos in word_and_word_pos:
         word_counter[word] += 1
@@ -249,6 +249,7 @@ def get_speechreps_for_utt(word_and_word_pos, utt_id, word2speechreps,
                                                   dropout_p=dropout_p)
         speechreps.extend(word_speechreps)
         speechreps_word_pos.extend(len(word_speechreps) * [word_pos])
+        word_and_speechreps.append((word, word_pos, word_speechreps))
 
     if append_eos:
         speechreps.append(eos_symbol)
@@ -257,7 +258,7 @@ def get_speechreps_for_utt(word_and_word_pos, utt_id, word2speechreps,
         # TODO add interword separator tokens
         # TODO <sep> or "_" according to tgt_dict
 
-    return speechreps, speechreps_word_pos
+    return speechreps, speechreps_word_pos, word_and_speechreps
 
 def prepend_speechreps_for_dict_encoding(speechreps, prepend_str="HUB", ignore_eos=True, eos_symbol="</s>"):
     """

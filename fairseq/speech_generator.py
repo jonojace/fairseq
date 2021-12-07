@@ -219,3 +219,93 @@ class TeacherForcingAutoRegressiveSpeechGenerator(AutoRegressiveSpeechGenerator)
                 finalized[b]["targ_feature"] = f[:l]
                 finalized[b]["targ_waveform"] = self.get_waveform(f[:l])
         return finalized
+
+
+class SACAutoRegressiveSpeechGenerator(SpeechGenerator):
+    def __init__(
+            self, model, vocoder, data_cfg, max_iter: int = 6000,
+            eos_prob_threshold: float = 0.5,
+    ):
+        super().__init__(model, vocoder, data_cfg)
+        self.max_iter = max_iter
+        self.eos_prob_threshold = eos_prob_threshold
+
+    @torch.no_grad()
+    def generate(self, model, sample, has_targ=False, **kwargs):
+        model.eval()
+
+        src_tokens = sample["net_input"]["src_tokens"]
+        src_lengths = sample["net_input"]["src_lengths"]
+        bsz, src_len = src_tokens.size()
+        n_frames_per_step = model.decoder.n_frames_per_step
+        out_dim = model.decoder.out_dim
+        raw_dim = out_dim // n_frames_per_step
+
+        # get SAC specific inputs
+        src_word_pos = sample["net_input"]["src_word_pos"]
+        src_segments = sample["net_input"]["src_segments"]
+
+        # initialize
+        encoder_out = model.forward_encoder(src_tokens, src_word_pos,
+                                            src_segments, src_lengths,
+                                            speaker=sample["speaker"])
+        incremental_state = {}
+        feat, attn, eos_prob = [], [], []
+        finished = src_tokens.new_zeros((bsz,)).bool()
+        out_lens = src_lengths.new_zeros((bsz,)).long().fill_(self.max_iter)
+
+        prev_feat_out = encoder_out["encoder_out"][0].new_zeros(bsz, 1, out_dim)
+        for step in range(self.max_iter):
+            cur_out_lens = out_lens.clone()
+            cur_out_lens.masked_fill_(cur_out_lens.eq(self.max_iter), step + 1)
+            _, cur_eos_out, cur_extra = model.forward_decoder(
+                prev_feat_out, encoder_out=encoder_out,
+                incremental_state=incremental_state,
+                target_lengths=cur_out_lens, speaker=sample["speaker"], **kwargs
+            )
+            cur_eos_prob = torch.sigmoid(cur_eos_out).squeeze(2)
+            feat.append(cur_extra['feature_out'])
+            attn.append(cur_extra['attn'])
+            eos_prob.append(cur_eos_prob)
+
+            cur_finished = (cur_eos_prob.squeeze(1) > self.eos_prob_threshold)
+            out_lens.masked_fill_((~finished) & cur_finished, step + 1)
+            finished = finished | cur_finished
+            if finished.sum().item() == bsz:
+                break
+            prev_feat_out = cur_extra['feature_out']
+
+        feat = torch.cat(feat, dim=1)
+        feat = model.decoder.postnet(feat) + feat
+        eos_prob = torch.cat(eos_prob, dim=1)
+        attn = torch.cat(attn, dim=2)
+        alignment = attn.max(dim=1)[1]
+
+        feat = feat.reshape(bsz, -1, raw_dim)
+        feat = self.gcmvn_denormalize(feat)
+
+        eos_prob = eos_prob.repeat_interleave(n_frames_per_step, dim=1)
+        attn = attn.repeat_interleave(n_frames_per_step, dim=2)
+        alignment = alignment.repeat_interleave(n_frames_per_step, dim=1)
+        out_lens = out_lens * n_frames_per_step
+
+        finalized = [
+            {
+                'feature': feat[b, :out_len],
+                'eos_prob': eos_prob[b, :out_len],
+                'attn': attn[b, :, :out_len],
+                'alignment': alignment[b, :out_len],
+                'waveform': self.get_waveform(feat[b, :out_len]),
+            }
+            for b, out_len in zip(range(bsz), out_lens)
+        ]
+
+        if has_targ:
+            assert sample["target"].size(-1) == out_dim
+            tgt_feats = sample["target"].view(bsz, -1, raw_dim)
+            tgt_feats = self.gcmvn_denormalize(tgt_feats)
+            tgt_lens = sample["target_lengths"] * n_frames_per_step
+            for b, (f, l) in enumerate(zip(tgt_feats, tgt_lens)):
+                finalized[b]["targ_feature"] = f[:l]
+                finalized[b]["targ_waveform"] = self.get_waveform(f[:l])
+        return finalized

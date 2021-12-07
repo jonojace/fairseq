@@ -336,7 +336,6 @@ class SACTransformerModel(FairseqEncoderDecoderModel):
       Transformer encoder is modified so that it can also take speechreps as inputs
       Word position information is also provided that aligns graphemes and speechreps that belong to the same word
     """
-
     @staticmethod
     def add_args(parser):
         parser.add_argument("--dropout", type=float)

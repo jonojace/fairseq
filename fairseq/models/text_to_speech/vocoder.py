@@ -189,6 +189,7 @@ class HiFiGANVocoder(nn.Module):
 
 
 def get_vocoder(args, data_cfg: S2TDataConfig):
+    # check CLA for vocoder type, then load the vocoder according to settings found in feature_manifest/config.yaml
     if args.vocoder == "griffin_lim":
         return GriffinLimVocoder.from_data_cfg(args, data_cfg)
     elif args.vocoder == "hifigan":

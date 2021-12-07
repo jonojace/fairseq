@@ -40,6 +40,30 @@ def make_parser():
     )
     return parser
 
+def sac_friendly_text(words_and_speechreps, incl_codes=False):
+    """
+    given
+    (how, None)
+    (you, None)
+    (doing, HUB2 HUB35...)
+
+    generate a text of following format
+    "how are <you-2,35,35,33>"
+    """
+    rv = []
+    for word, speechreps in words_and_speechreps:
+        if speechreps is None:
+            rv.append(word)
+        else:
+            s = f"{word.upper()}"
+            if incl_codes:
+                raise NotImplementedError # finish this, this currently breaks soundfile as soundfile can't deal with
+                # writing such long filenames to disk
+                codes_str = "-".join(str(sr) for sr in speechreps)
+                s += f"-{codes_str}"
+            rv.append(s)
+
+    return "_".join(rv)
 
 def postprocess_results(
         dataset: TextToSpeechDataset, sample, hypos, resample_fn, dump_target
@@ -53,6 +77,7 @@ def postprocess_results(
     eos_probs = [to_np(hypo.get("eos_prob", None)) for hypo in hypos]
     feat_preds = [to_np(hypo["feature"]) for hypo in hypos]
     wave_preds = [to_np(resample_fn(h["waveform"])) for h in hypos]
+    sac_friendly_texts = [sac_friendly_text(x, incl_codes=False) for x in sample["words_and_speechreps"]]
     if dump_target:
         feat_targs = [to_np(hypo["targ_feature"]) for hypo in hypos]
         wave_targs = [to_np(resample_fn(h["targ_waveform"])) for h in hypos]
@@ -61,8 +86,56 @@ def postprocess_results(
         wave_targs = [None for _ in hypos]
 
     return zip(sample_ids, texts, attns, eos_probs, feat_preds, wave_preds,
-               feat_targs, wave_targs)
+               feat_targs, wave_targs, sac_friendly_texts)
 
+
+def dedupe_adjacent(iterable, token_to_dedupe="<mask>"):
+    prev = object()
+    for item in iterable:
+        if item != token_to_dedupe:
+            prev = item
+            yield item
+        elif item != prev: # here item is equal to token_to_dedupe
+            prev = item
+            yield item
+
+# def text_to_descriptor(src_text):
+#     """return words of utt and indicate which words are masked out and replaced with speech reps"""
+#     # TODO get full text from MFA transcript using sample_id
+#     # TODO "LJ001-0004=how are <you-2,35,35,33> <doing-32,22,12>.wav"
+#
+#     src_text = src_text.split(" ")
+#     idx_first_sep = src_text.index("</s>")
+#
+#     # get rid of hubert codes
+#     graphemes = src_text[:idx_first_sep+1]
+#
+#     # remove duplicate <mask> tokens
+#     graphemes = dedupe_adjacent(graphemes, token_to_dedupe="<mask>")
+#
+#     # remove < and > so that soundfile can write to wav file
+#     # change mask token to just mask
+#     graphemes = [w if w != "<mask>" else "MASK" for w in graphemes]
+#     # change eos token to EOS
+#     graphemes = [w if w != "</s>" else "EOS" for w in graphemes]
+#
+#     # concat list back to single string
+#     graphemes = "".join(graphemes)
+#
+#     # change weird underscore to normal underscore
+#     graphemes = "".join(c if c != "▁" else "_" for c in graphemes)
+#
+#     # handle hubert codes
+#     codes = src_text[idx_first_sep+1:]
+#
+#     print(src_text)
+#     print(codes)
+#
+#     print(graphemes)
+#
+#     raise RuntimeError
+#
+#     return text
 
 def dump_result(
         is_na_model,
@@ -76,39 +149,43 @@ def dump_result(
         wave_pred,
         feat_targ,
         wave_targ,
+        sac_friendly_text,
 ):
+    # add useful info to filename
+    filename_no_ext = f"{sample_id}-{sac_friendly_text}"
+
     sample_rate = args.output_sample_rate
     out_root = Path(args.results_path)
     if args.dump_features:
         feat_dir = out_root / "feat"
         feat_dir.mkdir(exist_ok=True, parents=True)
-        np.save(feat_dir / f"{sample_id}.npy", feat_pred)
+        np.save(feat_dir / f"{filename_no_ext}.npy", feat_pred)
         if args.dump_target:
             feat_tgt_dir = out_root / "feat_tgt"
             feat_tgt_dir.mkdir(exist_ok=True, parents=True)
-            np.save(feat_tgt_dir / f"{sample_id}.npy", feat_targ)
+            np.save(feat_tgt_dir / f"{filename_no_ext}.npy", feat_targ)
     if args.dump_attentions:
         attn_dir = out_root / "attn"
         attn_dir.mkdir(exist_ok=True, parents=True)
-        np.save(attn_dir / f"{sample_id}.npy", attn.numpy())
+        np.save(attn_dir / f"{filename_no_ext}.npy", attn.numpy())
     if args.dump_eos_probs and not is_na_model:
         eos_dir = out_root / "eos"
         eos_dir.mkdir(exist_ok=True, parents=True)
-        np.save(eos_dir / f"{sample_id}.npy", eos_prob)
+        np.save(eos_dir / f"{filename_no_ext}.npy", eos_prob)
 
     if args.dump_plots:
         images = [feat_pred.T] if is_na_model else [feat_pred.T, attn]
         names = ["output"] if is_na_model else ["output", "alignment"]
         if feat_targ is not None:
             images = [feat_targ.T] + images
-            names = [f"target (idx={sample_id})"] + names
+            names = [f"target (idx={filename_no_ext})"] + names
         if is_na_model:
-            plot_tts_output(images, names, attn, "alignment", suptitle=text)
+            plot_tts_output(images, names, attn, "alignment", suptitle=sac_friendly_text)
         else:
-            plot_tts_output(images, names, eos_prob, "eos prob", suptitle=text)
+            plot_tts_output(images, names, eos_prob, "eos prob", suptitle=sac_friendly_text)
         plot_dir = out_root / "plot"
         plot_dir.mkdir(exist_ok=True, parents=True)
-        plt.savefig(plot_dir / f"{sample_id}.png")
+        plt.savefig(plot_dir / f"{filename_no_ext}.png")
         plt.close()
 
     if args.dump_waveforms:
@@ -116,11 +193,11 @@ def dump_result(
         if wave_pred is not None:
             wav_dir = out_root / f"{ext}_{sample_rate}hz_{vocoder}"
             wav_dir.mkdir(exist_ok=True, parents=True)
-            sf.write(wav_dir / f"{sample_id}.{ext}", wave_pred, sample_rate)
+            sf.write(wav_dir / f"{filename_no_ext}.{ext}", wave_pred, sample_rate)
         if args.dump_target and wave_targ is not None:
             wav_tgt_dir = out_root / f"{ext}_{sample_rate}hz_{vocoder}_tgt"
             wav_tgt_dir.mkdir(exist_ok=True, parents=True)
-            sf.write(wav_tgt_dir / f"{sample_id}.{ext}", wave_targ, sample_rate)
+            sf.write(wav_tgt_dir / f"{filename_no_ext}.{ext}", wave_targ, sample_rate)
 
 
 def main(args):
@@ -171,6 +248,7 @@ def main(args):
     is_na_model = getattr(model, "NON_AUTOREGRESSIVE", False)
     dataset = task.dataset(args.gen_subset)
     vocoder = task.args.vocoder
+    count = 0
     with progress_bar.build_progress_bar(args, itr) as t:
         for sample in t:
             sample = utils.move_to_cuda(sample) if use_cuda else sample
@@ -178,8 +256,10 @@ def main(args):
             for result in postprocess_results(
                     dataset, sample, hypos, resample_fn, args.dump_target
             ):
+                count += 1
                 dump_result(is_na_model, args, vocoder, *result)
-    print("***Finished generation***")
+
+    print(f"*** Finished SAC generation of {count} items ***")
 
 
 def cli_main():

@@ -9,7 +9,7 @@ srun --part=ILCC_GPU,CDT_GPU --gres=gpu:$NUM_GPUS --cpus-per-task=$CPUS_PER_TASK
 #srun --part=ILCC_GPU,CDT_GPU --gres=gpu:gtx2080ti:$NUM_GPUS --cpus-per-task=$CPUS_PER_TASK --mem=$MEM --exclude=$EXCLUDE --pty bash
 
 ##################################################################################################
-# Set training params
+# Set training params common to all jobs
 cd ~
 source activate_fairseq.sh
 NUM_GPUS=4
@@ -22,6 +22,22 @@ FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
 
 ##################################################################################################
 # Run training for different experiments
+
+#mask speech timesteps from decoder
+MODEL_NAME=test_sac_normal_masking2
+fairseq-train ${FEATURE_MANIFEST_ROOT} \
+  --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
+  --config-yaml config.yaml --train-subset train --valid-subset dev \
+  --num-workers $NUM_WORKERS --max-tokens $MAX_TOKENS --max-update 200000 \
+  --task speech_audio_corrector --criterion sac_tts --arch sac_transformer \
+  --clip-norm 5.0 --n-frames-per-step 4 --bce-pos-weight 5.0 \
+  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
+  --encoder-normalize-before --decoder-normalize-before \
+  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
+  --mask-speech-timesteps \
+  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
+
+#no speech masking from decoder
 MODEL_NAME=test_sac_normal_masking_maxtokens${MAX_TOKENS}_updatefreq${UPDATE_FREQ}_gpus${NUM_GPUS}_nospeechmasking
 fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \

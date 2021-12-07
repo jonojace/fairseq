@@ -16,7 +16,7 @@ from fairseq.tasks import register_task
 from fairseq.tasks.text_to_speech import TextToSpeechTask
 from fairseq.speech_generator import (
     AutoRegressiveSpeechGenerator, NonAutoregressiveSpeechGenerator,
-    TeacherForcingAutoRegressiveSpeechGenerator
+    TeacherForcingAutoRegressiveSpeechGenerator, SACAutoRegressiveSpeechGenerator
 )
 from fairseq.data import Dictionary
 from pathlib import Path
@@ -64,4 +64,23 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
             n_frames_per_step=self.args.n_frames_per_step,
             speaker_to_id=self.speaker_to_id,
         )
+
+    def build_generator(self, models, cfg, vocoder=None, **unused):
+        if vocoder is None:
+            vocoder = self.build_default_vocoder()
+        model = models[0]
+        if getattr(model, "NON_AUTOREGRESSIVE", False):
+            return NonAutoregressiveSpeechGenerator(
+                model, vocoder, self.data_cfg
+            )
+        else:
+            generator = SACAutoRegressiveSpeechGenerator
+            if getattr(cfg, "teacher_forcing", False):
+                generator = TeacherForcingAutoRegressiveSpeechGenerator
+                logger.info("Teacher forcing mode for generation")
+            return generator(
+                model, vocoder, self.data_cfg,
+                max_iter=self.args.max_target_positions,
+                eos_prob_threshold=self.args.eos_prob_threshold
+            )
 

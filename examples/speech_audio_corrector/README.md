@@ -54,6 +54,21 @@ python -m examples.speech_synthesis.preprocessing.get_feature_manifest \
   # --ipa-vocab --use-g2p # commented out as we want raw grapeheme inputs for TAC
 ```
 
+# (Optional) setup hifigan vocoder
+
+Download checkpoint from hifigan repo (e.g. universal V1)
+
+In feature_manifest/config.yaml add 
+
+```yaml
+vocoder:
+  type: hifigan
+  config: /home/s1785140/pretrained_models/hifigan/config.json
+  checkpoint: /home/s1785140/pretrained_models/hifigan/g_02500000
+```
+
+Then add --vocoder hifigan to model training commands
+
 # Vanilla TTS training command
 ```bash
 NUM_GPUS=4
@@ -241,6 +256,7 @@ python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFE
   --config-yaml config.yaml --gen-subset ${SPLIT} --task speech_audio_corrector \
   --path ${CHECKPOINT_PATH} --max-tokens 50000 --spec-bwd-max-iter 32 \
   --results-path $OUT_DIR \
+  --vocoder hifigan \
   --dump-waveforms
 ```
 
