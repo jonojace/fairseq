@@ -199,6 +199,22 @@ def dump_result(
             wav_tgt_dir.mkdir(exist_ok=True, parents=True)
             sf.write(wav_tgt_dir / f"{filename_no_ext}.{ext}", wave_targ, sample_rate)
 
+def get_batch_iterator_for_utts(
+        utts,
+        dataset,
+        max_sentences,
+        # epoch=1,
+):
+    # initialize the dataset with the correct starting epoch
+    # dataset.set_epoch(epoch)
+
+    # create mini-batches with given size constraints
+    batches = dataset.batch_from_utts(
+        utts,
+        max_sentences,
+    )
+
+    return batches
 
 def main(args):
     assert(args.dump_features or args.dump_waveforms or args.dump_attentions
@@ -242,7 +258,7 @@ def main(args):
         # generate test sentences in txt file (WARNING: do not have underlying ground truth audio for obj eval!)
         with open(txt_file, 'r') as f:
             test_utts = f.readlines()
-        itr =
+        itr = get_batch_iterator_for_utts(test_utts).next_epoch_itr(shuffle=False)
     else:
         # generate from a subset of corpus (usually test, but can specify train or dev)
         itr = task.get_batch_iterator(

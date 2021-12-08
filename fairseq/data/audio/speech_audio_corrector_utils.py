@@ -207,10 +207,13 @@ def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps, ra
     """return the speechreps for a wordtype
 
     optionally remove duplicates"""
-    unique_id = f"{utt_id}|{count_of_word}"
+    if utt_id and count_of_word:
+        unique_id = f"{utt_id}|{count_of_word}"
+    else:
+        unique_id = None # just get speechreps for word, pulling from a random utterance
 
     # get speechreps corresponding to word
-    if not randomise and unique_id in word2speechreps[wordtype]:
+    if unique_id and not randomise and unique_id in word2speechreps[wordtype]:
         word_reps = word2speechreps[wordtype][unique_id]
     else:
         random_unique_id = random.sample(word2speechreps[wordtype].keys(), k=1)[0]
@@ -296,4 +299,139 @@ def mask_according_to_word_pos(x, word_positions, word_positions_to_mask, mask_a
             masked_x.append(token)
     return masked_x
 
+def get_tokens(utt):
+    """
+    "how <are> you" ->
+    [
+        {
+            'word': "how",
+            'word_pos': 1,
+            'mask': False
+        },
+        {
+            'word': "are",
+            'word_pos': 2,
+            'mask': True
+        },
+        {
+            'word': "you",
+            'word_pos': 3,
+            'mask': False
+        },
+    ]
+    """
+    # Process text
+    raw_tokens = utt.lower().split(' ')
+
+    tokens = []
+    for token_pos, raw_token in enumerate(raw_tokens, 1):
+        if raw_token.startswith('<') and raw_token.endswith('>'):
+            tokens.append({"word": raw_token.lstrip('<').rstrip('>'), "word_pos": token_pos, "mask": True})
+        else:
+            tokens.append({"word": raw_token, "word_pos": token_pos, "mask": False})
+
+    # get tokenized text
+    bpe_whitespace_tok = "▁"
+
+    # add whitespace tokens before each token
+    tmp_tokens = []
+    for token in tokens:
+        tmp_tokens.append({"word": bpe_whitespace_tok})
+        tmp_tokens.append(token)
+    tokens = tmp_tokens
+    return tokens
+
+def get_text_inputs(tokens, mask_token,
+                    bpe_whitespace_tok="▁", bpe_whitespace_tok_pos=0,
+                    eos_symbol="</s>", eos_symbol_pos=0):
+    """For test time inference of text not in training corpus
+
+    tokens:
+    [
+        {
+            'word': "how",
+            'word_pos': 1,
+            'mask': False
+        },
+        {
+            'word': "are",
+            'word_pos': 2,
+            'mask': True
+        },
+        {
+            'word': "you",
+            'word_pos': 3,
+            'mask': False
+        },
+    ]
+    ->
+    graphemes = [▁, h, o, w, ▁, MASK, MASK, MASK, ▁, y, o, u, </s>]
+    word_pos_of_graphemes = [0 1 1 1 0 2 2 2 0 3 3 3 0]
+    """
+    # get characters and positions of each character
+    graphemes = []
+    word_pos_of_graphemes = []
+
+    for token in tokens:
+        if token["word"] == bpe_whitespace_tok:
+            graphemes.append(bpe_whitespace_tok)
+            word_pos_of_graphemes.append(bpe_whitespace_tok_pos)
+        else:
+            for c in token["word"]:
+                if token["mask"]:
+                    graphemes.append(mask_token)
+                else:
+                    graphemes.append(c)
+                word_pos_of_graphemes.append(token["word_pos"])
+
+    graphemes.append(eos_symbol)
+    word_pos_of_graphemes.append(eos_symbol_pos)
+
+    return graphemes, word_pos_of_graphemes
+
+def get_speechreps_inputs(tokens, word2speechreps,
+                          bpe_whitespace_tok="▁", bpe_whitespace_tok_pos=0,
+                          eos_symbol="</s>", eos_symbol_pos=0):
+    """
+    tokens:
+    [
+        {
+            'word': "how",
+            'word_pos': 1,
+            'mask': False
+        },
+        {
+            'word': "are",
+            'word_pos': 2,
+            'mask': True
+        },
+        {
+            'word': "you",
+            'word_pos': 3,
+            'mask': False
+        },
+    ]
+    ->
+    graphemes = [33,22,44,4,5,10,</s>] # speechreps for word "are"
+    word_pos_of_graphemes = [2,2,2,2,2,2,0]
+    """
+    speechreps = []
+    word_pos_of_speechreps = []
+
+    for token in tokens:
+        if token["word"] == bpe_whitespace_tok:
+            speechreps.append(bpe_whitespace_tok)
+            word_pos_of_speechreps.append(bpe_whitespace_tok_pos)
+        elif token["mask"]: # this token is masked in text sequence, so add speechreps for this word
+            word_speechreps = get_speechreps_for_word(
+                token["word"], utt_id=None, count_of_word=None, word2speechreps=word2speechreps,
+                randomise=True, remove_dup_prob=1.0, remove_dup_rand_num=False, dropout_p=0.0
+            )
+            speechreps.extend(word_speechreps)
+            word_pos_of_speechreps.extend(len(word_speechreps) * [token["word_pos"]])
+
+    speechreps.append(eos_symbol)
+    word_pos_of_speechreps.append(eos_symbol_pos)
+
+    return speechreps, word_pos_of_speechreps
 
