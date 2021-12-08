@@ -216,7 +216,13 @@ def main(args):
     model = models[0].cuda() if use_cuda else models[0]
     # use the original n_frames_per_step
     task.args.n_frames_per_step = saved_cfg.task.n_frames_per_step
-    task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
+
+    if txt_file:
+        # TODO combine train dev and test so we have more options of word-aligned speech reps to choose from?
+        task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
+    else:
+        task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
+
 
     data_cfg = task.data_cfg
     sample_rate = data_cfg.config.get("features", {}).get("sample_rate", 22050)
@@ -231,22 +237,36 @@ def main(args):
         logger.info(f"resampling to {args.output_sample_rate}Hz")
 
     generator = task.build_generator([model], args)
-    itr = task.get_batch_iterator(
-        dataset=task.dataset(args.gen_subset),
-        max_tokens=args.max_tokens,
-        max_sentences=args.batch_size,
-        max_positions=(sys.maxsize, sys.maxsize),
-        ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-        required_batch_size_multiple=args.required_batch_size_multiple,
-        num_shards=args.num_shards,
-        shard_id=args.shard_id,
-        num_workers=args.num_workers,
-        data_buffer_size=args.data_buffer_size,
-    ).next_epoch_itr(shuffle=False)
+
+    if txt_file:
+        # generate test sentences in txt file (WARNING: do not have underlying ground truth audio for obj eval!)
+        with open(txt_file, 'r') as f:
+            test_utts = f.readlines()
+        itr =
+    else:
+        # generate from a subset of corpus (usually test, but can specify train or dev)
+        itr = task.get_batch_iterator(
+            dataset=task.dataset(args.gen_subset),
+            max_tokens=args.max_tokens,
+            max_sentences=args.batch_size,
+            max_positions=(sys.maxsize, sys.maxsize),
+            ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+            required_batch_size_multiple=args.required_batch_size_multiple,
+            num_shards=args.num_shards,
+            shard_id=args.shard_id,
+            num_workers=args.num_workers,
+            data_buffer_size=args.data_buffer_size,
+        ).next_epoch_itr(shuffle=False)
 
     Path(args.results_path).mkdir(exist_ok=True, parents=True)
     is_na_model = getattr(model, "NON_AUTOREGRESSIVE", False)
-    dataset = task.dataset(args.gen_subset)
+
+    if txt_file:
+        # TODO combine train dev and test so we have more options of word-aligned speech reps to choose from?
+        dataset = task.dataset(args.gen_subset)
+    else:
+        dataset = task.dataset(args.gen_subset)
+
     vocoder = task.args.vocoder
     count = 0
     with progress_bar.build_progress_bar(args, itr) as t:

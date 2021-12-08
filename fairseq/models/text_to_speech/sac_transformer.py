@@ -74,13 +74,16 @@ class SACTransformerEncoder(FairseqEncoder):
         self.embed_positions = PositionalEmbedding(
             args.max_source_positions, args.encoder_embed_dim, self.padding_idx
         )
-        self.morph_word_pos = nn.Linear(
-            args.encoder_embed_dim, args.encoder_embed_dim
-        )
+
+        self.no_word_pos = args.no_word_pos
 
         self.seg_emb_alpha = nn.Parameter(torch.ones(1))
         self.pos_emb_alpha = nn.Parameter(torch.ones(1))
-        self.word_pos_emb_alpha = nn.Parameter(torch.ones(1))
+        if not self.no_word_pos:
+            self.word_pos_emb_alpha = nn.Parameter(torch.ones(1))
+            self.morph_word_pos = nn.Linear(
+                args.encoder_embed_dim, args.encoder_embed_dim
+            )
 
         self.transformer_layers = nn.ModuleList(
             TransformerEncoderLayer(args)
@@ -121,9 +124,10 @@ class SACTransformerEncoder(FairseqEncoder):
         x += self.pos_emb_alpha * embedded_token_positions
 
         # word positions
-        embedded_word_positions = self.embed_positions(src_word_pos, positions=src_word_pos)
-        morphed_word_positions = self.morph_word_pos(embedded_word_positions)
-        x += self.word_pos_emb_alpha * morphed_word_positions
+        if not self.no_word_pos:
+            embedded_word_positions = self.embed_positions(src_word_pos, positions=src_word_pos)
+            morphed_word_positions = self.morph_word_pos(embedded_word_positions)
+            x += self.word_pos_emb_alpha * morphed_word_positions
 
         ################################################################################################################
         # Pass inputs through model
@@ -358,6 +362,8 @@ class SACTransformerModel(FairseqEncoderDecoderModel):
         parser.add_argument("--mask-speech-timesteps", action='store_true',
                             help='by default decoder can attend to encoder timesteps of graphemes and speech,'
                                  'can optionally only attend to grapheme timesteps by masking speech timesteps.')
+        parser.add_argument("--no-word-pos", action='store_true',
+                            help='do not use word positional information, likely to hinder test time correction perf')
         # decoder prenet
         parser.add_argument("--prenet-dropout", type=float)
         parser.add_argument("--prenet-layers", type=int)
@@ -427,6 +433,7 @@ def base_architecture(args):
     args.activation_fn = getattr(args, "activation_fn", "relu")
     # Encoder outputs masking
     args.mask_speech_timesteps = getattr(args, "mask_speech_timesteps", False)
+    args.no_word_pos = getattr(args, "no_word_pos", False)
     # decoder prenet
     args.prenet_dropout = getattr(args, "prenet_dropout", 0.5)
     args.prenet_layers = getattr(args, "prenet_layers", 2)

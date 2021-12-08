@@ -35,8 +35,8 @@ except ImportError:
 
 @register_task('text_to_speech')
 class TextToSpeechTask(SpeechToTextTask):
-    @staticmethod
-    def add_args(parser):
+    @classmethod
+    def add_args(cls, parser):
         parser.add_argument('data', help='manifest root path')
         parser.add_argument(
             '--config-yaml', type=str, default='config.yaml',

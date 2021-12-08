@@ -492,6 +492,7 @@ class SpeechToTextDatasetCreator(object):
     @classmethod
     def from_tsv(
         cls,
+        args,
         root: str,
         cfg: S2TDataConfig,
         splits: str,
@@ -506,7 +507,7 @@ class SpeechToTextDatasetCreator(object):
     ) -> SpeechToTextDataset:
         datasets = [
             cls._from_tsv(
-                root, cfg, split, tgt_dict, is_train_split, pre_tokenizer,
+                args, root, cfg, split, tgt_dict, is_train_split, pre_tokenizer,
                 bpe_tokenizer, n_frames_per_step, speaker_to_id
             )
             for split in splits.split(",")

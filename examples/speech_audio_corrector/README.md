@@ -165,7 +165,6 @@ NUM_WORKERS=2
 
 UPDATE_FREQ=3
 MAX_TOKENS=20000 # 30000 is default for transformer TTS
-MAX_SENTENCES=NULL # TODO use this to help control mem usage?
 FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
 
 ##################################################################################################
@@ -182,14 +181,6 @@ fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
   --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss  
   #--eval-inference --best-checkpoint-metric mcd_lossmetric mcd_lossv \
-  --num-workers $NUM_WORKERS --max-tokens $MAX_TOKENS --max-update 200000 \
-  --task speech_audio_corrector --criterion sac_tts --arch sac_transformer \
-  --clip-norm 5.0 --n-frames-per-step 4 --bce-pos-weight 5.0 \
-  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
-  --encoder-normalize-before --decoder-normalize-before \
-  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
-  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss  
-  #--eval-inference --best-checkpoint-metric mcd_lossmetric mcd_loss
   
 MODEL_NAME=test_sac_mask_all_speechreps
 fairseq-train ${FEATURE_MANIFEST_ROOT} \
@@ -202,6 +193,19 @@ fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --encoder-normalize-before --decoder-normalize-before \
   --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
   --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
+  
+MODEL_NAME=test_randomise_examples
+fairseq-train ${FEATURE_MANIFEST_ROOT} \
+  --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
+  --config-yaml config.yaml --train-subset train --valid-subset dev \
+  --num-workers $NUM_WORKERS --max-tokens $MAX_TOKENS --max-update 200000 \
+  --task speech_audio_corrector --criterion sac_tts --arch sac_transformer \
+  --clip-norm 5.0 --n-frames-per-step 4 --bce-pos-weight 5.0 \
+  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
+  --encoder-normalize-before --decoder-normalize-before \
+  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
+  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss \
+  --randomise-examples
 ```
 
 # Generate waveform

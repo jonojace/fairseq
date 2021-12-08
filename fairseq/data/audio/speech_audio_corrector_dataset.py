@@ -9,12 +9,19 @@ from fairseq.data.audio.speech_to_text_dataset import (
     SpeechToTextDataset, SpeechToTextDatasetCreator, S2TDataConfig,
     _collate_frames, get_features_or_waveform
 )
-from fairseq.data import Dictionary, data_utils as fairseq_data_utils
 
 from fairseq.data.audio.text_to_speech_dataset import (
     TextToSpeechDatasetItem,
     TextToSpeechDataset,
     TextToSpeechDatasetCreator,
+)
+
+from fairseq.data import (
+    ConcatDataset,
+    Dictionary,
+    FairseqDataset,
+    ResamplingDataset,
+    data_utils as fairseq_data_utils,
 )
 
 from fairseq.data.audio.speech_audio_corrector_utils import (
@@ -31,6 +38,13 @@ import textgrid
 from collections import Counter
 from fairseq.tokenizer import tokenize_line
 
+# class S2TDataConfig(S2TDataConfig):
+#     @property
+#     def randomise_examples(self):
+#         """whether to retrieve speechreps corresponding to the exact word example in an utterance
+#         or speechreps from another randomly picked example of that wordtype in the entire speech corpus"""
+#         return self.config.get("randomise_examples", False)
+
 @dataclass
 class SpeechAudioCorrectorDatasetItem(TextToSpeechDatasetItem):
     word_pos: Optional[List[int]] = None
@@ -42,6 +56,7 @@ class SpeechAudioCorrectorDatasetItem(TextToSpeechDatasetItem):
 class SpeechAudioCorrectorDataset(TextToSpeechDataset):
     def __init__(
             self,
+            args,
             split: str,
             is_train_split: bool,
             cfg: S2TDataConfig,
@@ -98,14 +113,24 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         )
 
         ################################################################################################################
+        # add SAC specific CLAs from arg parser to cfg
+
+
+        ################################################################################################################
         # add SAC specific data structure to this dataset object
         self.segment_pad_idx = 0
         self.ids2word_alignments = ids2word_alignments
         self.word2speechreps = get_word2speechreps(ids, ids2speechreps, ids2word_alignments)
 
+        # add SAC specific settings
+        self.randomise_examples = args.randomise_examples
+        print("in SpeechAudioCorrectorDataset init() self.randomise_examples is ", self.randomise_examples)
+
         # TODO WARNING!!! should make this a CLA! for debugging purposes
+        # for debugging: never allow model to get speechrep information. since words are still being masked
+        # this model should have significantly higher dev set losses or MCD
         self.mask_all_speechreps = False
-        # self.mask_all_speechreps = True
+
 
         # TODO optionally save/load this data structure to disk, so can avoid this slow preprocessing step
 
@@ -145,7 +170,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         # retrieve speech reps for each word in mfa text, inserting a <sep> token in between each word-aligned speech rep chunk
         speechreps, word_pos_of_speechreps, word_wordpos_speechreps_tup = get_speechreps_for_utt(
             word_and_word_pos, utt_id, self.word2speechreps,
-            randomise_examples=False, remove_dup_prob=1.0,
+            randomise_examples=self.randomise_examples, remove_dup_prob=1.0,
             remove_dup_rand_num=False, dropout_p=0.0,
             append_eos=True, eos_symbol=eos_symbol,
         )
@@ -310,8 +335,65 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
 class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
     @classmethod
+    def from_tsv(
+            cls,
+            args,
+            root: str,
+            cfg: S2TDataConfig,
+            splits: str,
+            tgt_dict,
+            pre_tokenizer,
+            bpe_tokenizer,
+            is_train_split: bool,
+            epoch: int,
+            seed: int,
+            n_frames_per_step: int = 1,
+            speaker_to_id=None
+    ) -> SpeechToTextDataset:
+        datasets = [
+            cls._from_tsv(
+                args, root, cfg, split, tgt_dict, is_train_split, pre_tokenizer,
+                bpe_tokenizer, n_frames_per_step, speaker_to_id
+            )
+            for split in splits.split(",")
+        ]
+
+        if is_train_split and len(datasets) > 1 and cfg.sampling_alpha != 1.0:
+            # temperature-based sampling
+            size_ratios = cls.get_size_ratios(datasets, alpha=cfg.sampling_alpha)
+            datasets = [
+                ResamplingDataset(
+                    d, size_ratio=r, seed=seed, epoch=epoch, replace=(r >= 1.0)
+                )
+                for r, d in zip(size_ratios, datasets)
+            ]
+
+        return ConcatDataset(datasets) if len(datasets) > 1 else datasets[0]
+
+    @classmethod
+    def _from_tsv(
+            cls,
+            args,
+            root: str,
+            cfg: S2TDataConfig,
+            split: str,
+            tgt_dict,
+            is_train_split: bool,
+            pre_tokenizer,
+            bpe_tokenizer,
+            n_frames_per_step,
+            speaker_to_id
+    ) -> SpeechToTextDataset:
+        samples = cls._load_samples_from_tsv(root, split)
+        return cls._from_list(
+            args, split, is_train_split, samples, cfg, tgt_dict, pre_tokenizer,
+            bpe_tokenizer, n_frames_per_step, speaker_to_id
+        )
+
+    @classmethod
     def _from_list(
         cls,
+        args,
         split_name: str,
         is_train_split,
         samples: List[Dict],
@@ -339,8 +421,11 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
         ids2speechreps = cls.load_speechreps(speechrep_file)
         ids2word_alignments = cls.load_word_alignments(ids, alignments_dir)
 
+        # print("S2TDataConfig", cfg)
+        # print("S2TDataConfig", cfg.randomise_examples)
+
         sac_dataset = SpeechAudioCorrectorDataset(
-            split_name, is_train_split, cfg, audio_paths, n_frames,
+            args, split_name, is_train_split, cfg, audio_paths, n_frames,
             src_texts=src_texts, tgt_texts=tgt_texts, speakers=speakers,
             src_langs=src_langs, tgt_langs=tgt_langs, ids=ids,
             tgt_dict=tgt_dict, pre_tokenizer=pre_tokenizer,

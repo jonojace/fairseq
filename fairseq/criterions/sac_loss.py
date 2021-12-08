@@ -90,5 +90,42 @@ class SACCriterion(Tacotron2Criterion):
             "eos_loss": utils.item(eos_loss.data),
             "attn_loss": utils.item(attn_loss.data),
             "ctc_loss": utils.item(ctc_loss.data),
+            "seg_emb_alpha": utils.item(model.encoder.seg_emb_alpha),
+            "pos_emb_alpha": utils.item(model.encoder.pos_emb_alpha),
         }
+
+        if not model.encoder.no_word_pos:
+            logging_output["word_pos_emb_alpha"] = utils.item(model.encoder.word_pos_emb_alpha),
+
         return loss, sample_size, logging_output
+
+    @classmethod
+    def reduce_metrics(cls, logging_outputs: List[Dict[str, Any]]) -> None:
+        ns = [log.get("sample_size", 0) for log in logging_outputs]
+        ntot = sum(ns)
+        ws = [n / (ntot + 1e-8) for n in ns]
+
+        # log metrics that should be summed
+        for key in ["loss", "l1_loss", "mse_loss", "eos_loss", "attn_loss", "ctc_loss"]:
+            vals = [log.get(key, 0) for log in logging_outputs]
+            val = sum(val * w for val, w in zip(vals, ws))
+            metrics.log_scalar(key, val, ntot, round=3)
+
+        # log other metrics
+        seg_emb_alpha = logging_outputs[0].get("seg_emb_alpha", 0)
+        pos_emb_alpha = logging_outputs[0].get("pos_emb_alpha", 0)
+        metrics.log_scalar("seg_emb_alpha", seg_emb_alpha, 0)
+        metrics.log_scalar("pos_emb_alpha", pos_emb_alpha, 0)
+
+        # inference metrics
+        if "targ_frames" not in logging_outputs[0]:
+            return
+        n = sum(log.get("targ_frames", 0) for log in logging_outputs)
+        for key, new_key in [
+                ("mcd_loss", "mcd_loss"),
+                ("pred_frames", "pred_ratio"),
+                ("nins", "ins_rate"),
+                ("ndel", "del_rate"),
+        ]:
+            val = sum(log.get(key, 0) for log in logging_outputs)
+            metrics.log_scalar(new_key, val / n, n, round=3)

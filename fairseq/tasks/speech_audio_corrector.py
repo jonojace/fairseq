@@ -37,10 +37,21 @@ except ImportError:
     logger.info("Please install tensorboardX: pip install tensorboardX")
     SummaryWriter = None
 
+#TODO add args from CLA
+#TODO randomise_examples
+
+
 @register_task('speech_audio_corrector')
 class SpeechAudioCorrectorTask(TextToSpeechTask):
+    @classmethod
+    def add_args(cls, parser):
+        super(SpeechAudioCorrectorTask, cls).add_args(parser)
+        parser.add_argument("--randomise-examples", action="store_true",)
+
     def __init__(self, args, src_dict):
         super().__init__(args, src_dict)
+
+        self.args = args
 
         # add symbols for SAC to dictionary
         self.src_dict.add_symbol("<mask>")
@@ -57,7 +68,9 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
         is_train_split = split.startswith('train')
         pre_tokenizer = self.build_tokenizer(self.args)
         bpe_tokenizer = self.build_bpe(self.args)
+
         self.datasets[split] = SpeechAudioCorrectorDatasetCreator.from_tsv(
+            self.args,
             self.args.data, self.data_cfg, split, self.src_dict,
             pre_tokenizer, bpe_tokenizer, is_train_split=is_train_split,
             epoch=epoch, seed=self.args.seed,
