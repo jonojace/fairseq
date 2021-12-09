@@ -246,6 +246,7 @@ python -m examples.speech_synthesis.generate_waveform ${FEATURE_MANIFEST_ROOT} \
 cd ~/fairseq
 
 MODEL=test_sac_normal_masking2
+VOCODER=wav_22050hz_hifigan
 SAVE_DIR=checkpoints/$MODEL
 SPLIT=test
 FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
@@ -257,7 +258,7 @@ python scripts/average_checkpoints.py --inputs ${SAVE_DIR} \
   --num-epoch-checkpoints 5 \
   --output ${CHECKPOINT_PATH}
 
-# generate entire test set
+# generate entire test set (using random masking just like training)
 python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFEST_ROOT} \
   --config-yaml config.yaml --gen-subset ${SPLIT} --task speech_audio_corrector \
   --path ${CHECKPOINT_PATH} --max-tokens 50000 --spec-bwd-max-iter 32 \
@@ -265,7 +266,10 @@ python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFE
   --vocoder hifigan \
   --dump-waveforms
   
-# generate txt file of utterances, i.e. "how is <champagne> pronounced"
+# generate txt file of utterances
+# where we can control which words are swapped to speechreps i.e. "how is <champagne> pronounced"
+#SPLIT=train
+SPLIT=test
 python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFEST_ROOT} \
   --config-yaml config.yaml --gen-subset ${SPLIT} --task speech_audio_corrector \
   --path ${CHECKPOINT_PATH} --max-tokens 50000 --spec-bwd-max-iter 32 \
@@ -275,6 +279,38 @@ python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFE
   --batch-size 32 \
   --speechreps-add-mask-tokens \
   --txt-file examples/speech_audio_corrector/test_utts.txt
+
+
+# TEST SET OOVS (words in test set but not in train)  
+SPLIT=test
+python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFEST_ROOT} \
+  --config-yaml config.yaml --gen-subset ${SPLIT} --task speech_audio_corrector \
+  --path ${CHECKPOINT_PATH} --max-tokens 50000 --spec-bwd-max-iter 32 \
+  --results-path $OUT_DIR \
+  --vocoder hifigan \
+  --dump-waveforms \
+  --batch-size 32 \
+  --speechreps-add-mask-tokens \
+  --txt-file examples/speech_audio_corrector/test_utts_test_set_oovs.txt \
+  --add-count-to-filename
+mkdir $OUT_DIR/$VOCODER/test_oovs
+mv $OUT_DIR/$VOCODER/*.wav $OUT_DIR/$VOCODER/test_oovs
+  
+
+# DEV SET OOVS (words in dev set but not in train)
+SPLIT=dev 
+python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFEST_ROOT} \
+  --config-yaml config.yaml --gen-subset ${SPLIT} --task speech_audio_corrector \
+  --path ${CHECKPOINT_PATH} --max-tokens 50000 --spec-bwd-max-iter 32 \
+  --results-path $OUT_DIR \
+  --vocoder hifigan \
+  --dump-waveforms \
+  --batch-size 32 \
+  --speechreps-add-mask-tokens \
+  --txt-file examples/speech_audio_corrector/test_utts_dev_set_oovs.txt \
+  --add-count-to-filename
+mkdir $OUT_DIR/$VOCODER/dev_oovs
+mv $OUT_DIR/$VOCODER/*.wav $OUT_DIR/$VOCODER/dev_oovs
 ```
 
 ## Speech Audio Correction speech synthesis

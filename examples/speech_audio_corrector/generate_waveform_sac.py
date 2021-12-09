@@ -43,6 +43,8 @@ def make_parser():
         help="path to txt file of utterances to generate."
     )
     parser.add_argument("--speechreps-add-mask-tokens", action="store_true")
+    parser.add_argument("--add-count-to-filename", action="store_true")
+
     return parser
 
 def sac_friendly_text(words_and_speechreps, incl_codes=False):
@@ -118,6 +120,7 @@ def dump_result(
         args,
         count,
         vocoder,
+        add_count_to_filename,
         sample_id,
         text,
         attn,
@@ -132,8 +135,10 @@ def dump_result(
     if sample_id and sac_friendly_text:
         filename_no_ext = f"{sample_id}-{sac_friendly_text}"
     else:
-        # filename_no_ext = f"{count}-{text}"
-        filename_no_ext = f"{text}"
+        if add_count_to_filename:
+            filename_no_ext = f"{count}-{text}"
+        else:
+            filename_no_ext = f"{text}"
 
     sample_rate = args.output_sample_rate
     out_root = Path(args.results_path)
@@ -181,6 +186,32 @@ def dump_result(
             sf.write(wav_tgt_dir / f"{filename_no_ext}.{ext}", wave_targ, sample_rate)
 
 
+def filter_utts_whose_words_do_not_have_speechreps(utts, dataset, ignore_list=[]):
+    missing_tokens = set()
+    new_utts = []
+
+    print("DEBUG", list(dataset.word2speechreps.keys()))
+
+    for utt in utts:
+        for token in utt.split(" "):
+            if token.startswith("<") and token.endswith(">"):
+                word = token.lstrip("<").rstrip(">")
+            else:
+                word = token
+
+            if word not in dataset.word2speechreps and word not in ignore_list:
+                missing_tokens.add(token)
+                break
+        else:
+            new_utts.append(utt)
+
+    if len(missing_tokens) > 0:
+        print(f"\nWARNING {len(missing_tokens)} utts left out from inference. Words not in dataset.word2speechreps are:", missing_tokens)
+
+    print(f"DEBUG", len(utts), len(new_utts))
+
+    return new_utts
+
 def main(args):
     assert(args.dump_features or args.dump_waveforms or args.dump_attentions
            or args.dump_eos_probs or args.dump_plots)
@@ -226,6 +257,8 @@ def main(args):
             test_utts = [l.rstrip("\n") for l in f.readlines() if l != "\n" and not l.startswith("#")]
 
         print("test_utts", test_utts)
+
+        test_utts = filter_utts_whose_words_do_not_have_speechreps(test_utts, dataset, ignore_list=["how", "is", "pronounced"])
             
         # create mini-batches with given size constraints
         itr = dataset.batch_from_utts(
@@ -262,7 +295,7 @@ def main(args):
                     dataset, sample, hypos, resample_fn, args.dump_target
             ):
                 count += 1
-                dump_result(is_na_model, args, count, vocoder, *result)
+                dump_result(is_na_model, args, count, vocoder, args.add_count_to_filename, *result)
 
     print(f"*** Finished SAC generation of {count} items ***")
 

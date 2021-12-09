@@ -1,54 +1,53 @@
-# # ignore utts by commenting them out
-#
+# ignore utts by commenting them out
+
 we will say complicated now
 we will say <complicated> now
 
-# <beyond> <the> press yard were three stories condemned cells fifteen in all with vaulted ceilings nine feet high to the crown of the arch
-#
-# how is <unusually> pronounced
-# how is unusually pronounced
-#
-# pronounced <pronounced> pronounced <pronounced> pronounced <pronounced> pronounced
-# pronounced pronounced pronounced pronounced pronounced pronounced pronounced
-#
-# what is the meaning of life
-# what is the <meaning> of life
-#
-# in the exhibition
-# in <the> exhibition
-# being comparatively modern
-# being <comparatively> modern
-# a similar process
-# a <similar> process
-# true printed book
-# true <printed> book
-# art of printing
-# art <of> printing
-# of fine typography
-# of <fine> typography
-# fourteen fifty five
-# fourteen <fifty> five
-# never been surpassed
-# never <been> surpassed
-# of movable types
-# of <movable> types
-#
-# printing in the only sense with which we are at present concerned differs from most if not from all the arts and crafts represented in the exhibition
-# printing in the only sense with which we are at present concerned differs from most if not from all the arts and crafts represented in <the> exhibition
-# in being comparatively modern
-# in being <comparatively> modern
-# for although the chinese took impressions from wood blocks engraved in relief for centuries before the woodcutters of the netherlands by a similar process
-# for although the chinese took impressions from wood blocks engraved in relief for centuries before the woodcutters of the netherlands by a <similar> process
-# produced the block books which were the immediate predecessors of the true printed book
-# produced the block books which were the immediate predecessors of the true <printed> book
-# the invention of movable metal letters in the middle of the fifteenth century may justly be considered as the invention of the art of printing
-# the invention of movable metal letters in the middle of the fifteenth century may justly be considered as the invention of the art <of> printing
-# and it is worth mention in passing that as an example of fine typography
-# and it is worth mention in passing that as an example of <fine> typography
-# the earliest book printed with movable types the gutenberg or forty two line bible of about fourteen fifty five
-# the earliest book printed with movable types the gutenberg or forty two line bible of about fourteen <fifty> five
-# has never been surpassed
-# has never <been> surpassed
-# printing then for our purpose may be considered as the art of making books by means of movable types
-# printing then for our purpose may be considered as the art of making books by means of <movable> types
-#
+<beyond> <the> press yard were three stories condemned cells fifteen in all with vaulted ceilings nine feet high to the crown of the arch
+
+how is <unusually> pronounced
+how is unusually pronounced
+
+pronounced <pronounced> pronounced <pronounced> pronounced <pronounced> pronounced
+pronounced pronounced pronounced pronounced pronounced pronounced pronounced
+
+what is the meaning of life
+what is the <meaning> of life
+
+in the exhibition
+in <the> exhibition
+being comparatively modern
+being <comparatively> modern
+a similar process
+a <similar> process
+true printed book
+true <printed> book
+art of printing
+art <of> printing
+of fine typography
+of <fine> typography
+fourteen fifty five
+fourteen <fifty> five
+never been surpassed
+never <been> surpassed
+of movable types
+of <movable> types
+
+printing in the only sense with which we are at present concerned differs from most if not from all the arts and crafts represented in the exhibition
+printing in the only sense with which we are at present concerned differs from most if not from all the arts and crafts represented in <the> exhibition
+in being comparatively modern
+in being <comparatively> modern
+for although the chinese took impressions from wood blocks engraved in relief for centuries before the woodcutters of the netherlands by a similar process
+for although the chinese took impressions from wood blocks engraved in relief for centuries before the woodcutters of the netherlands by a <similar> process
+produced the block books which were the immediate predecessors of the true printed book
+produced the block books which were the immediate predecessors of the true <printed> book
+the invention of movable metal letters in the middle of the fifteenth century may justly be considered as the invention of the art of printing
+the invention of movable metal letters in the middle of the fifteenth century may justly be considered as the invention of the art <of> printing
+and it is worth mention in passing that as an example of fine typography
+and it is worth mention in passing that as an example of <fine> typography
+the earliest book printed with movable types the gutenberg or forty two line bible of about fourteen fifty five
+the earliest book printed with movable types the gutenberg or forty two line bible of about fourteen <fifty> five
+has never been surpassed
+has never <been> surpassed
+printing then for our purpose may be considered as the art of making books by means of movable types
+printing then for our purpose may be considered as the art of making books by means of <movable> types
