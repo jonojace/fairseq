@@ -252,16 +252,29 @@ FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
 CHECKPOINT_NAME=avg_last_5
 CHECKPOINT_PATH=${SAVE_DIR}/checkpoint_${CHECKPOINT_NAME}.pt
 OUT_DIR=inference/$MODEL/$CHECKPOINT_NAME
+
 python scripts/average_checkpoints.py --inputs ${SAVE_DIR} \
   --num-epoch-checkpoints 5 \
   --output ${CHECKPOINT_PATH}
 
+# generate entire test set
 python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFEST_ROOT} \
   --config-yaml config.yaml --gen-subset ${SPLIT} --task speech_audio_corrector \
   --path ${CHECKPOINT_PATH} --max-tokens 50000 --spec-bwd-max-iter 32 \
   --results-path $OUT_DIR \
   --vocoder hifigan \
   --dump-waveforms
+  
+# generate txt file of utterances, i.e. "how is <champagne> pronounced"
+python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFEST_ROOT} \
+  --config-yaml config.yaml --gen-subset ${SPLIT} --task speech_audio_corrector \
+  --path ${CHECKPOINT_PATH} --max-tokens 50000 --spec-bwd-max-iter 32 \
+  --results-path $OUT_DIR \
+  --vocoder hifigan \
+  --dump-waveforms \
+  --batch-size 32 \
+  --speechreps-add-mask-tokens \
+  --txt-file examples/speech_audio_corrector/test_utts.txt
 ```
 
 ## Speech Audio Correction speech synthesis

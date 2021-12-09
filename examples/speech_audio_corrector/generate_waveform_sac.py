@@ -38,6 +38,11 @@ def make_parser():
     parser.add_argument(
         "--audio-format", type=str, default="wav", choices=["wav", "flac"]
     )
+    parser.add_argument(
+        "--txt-file", type=str, default="",
+        help="path to txt file of utterances to generate."
+    )
+    parser.add_argument("--speechreps-add-mask-tokens", action="store_true")
     return parser
 
 def sac_friendly_text(words_and_speechreps, incl_codes=False):
@@ -71,13 +76,22 @@ def postprocess_results(
     def to_np(x):
         return None if x is None else x.detach().cpu().numpy()
 
-    sample_ids = [dataset.ids[i] for i in sample["id"].tolist()]
-    texts = sample["src_texts"]
+    if sample["id"] is not None:
+        sample_ids = [dataset.ids[i] for i in sample["id"].tolist()]
+    else:
+        sample_ids = [None for _ in hypos]
+
+    texts = sample["raw_texts"]
     attns = [to_np(hypo["attn"]) for hypo in hypos]
     eos_probs = [to_np(hypo.get("eos_prob", None)) for hypo in hypos]
     feat_preds = [to_np(hypo["feature"]) for hypo in hypos]
     wave_preds = [to_np(resample_fn(h["waveform"])) for h in hypos]
-    sac_friendly_texts = [sac_friendly_text(x, incl_codes=False) for x in sample["words_and_speechreps"]]
+
+    if sample["words_and_speechreps"] is not None:
+        sac_friendly_texts = [sac_friendly_text(x, incl_codes=False) for x in sample["words_and_speechreps"]]
+    else:
+        sac_friendly_texts = [None for _ in hypos]
+
     if dump_target:
         feat_targs = [to_np(hypo["targ_feature"]) for hypo in hypos]
         wave_targs = [to_np(resample_fn(h["targ_waveform"])) for h in hypos]
@@ -99,47 +113,10 @@ def dedupe_adjacent(iterable, token_to_dedupe="<mask>"):
             prev = item
             yield item
 
-# def text_to_descriptor(src_text):
-#     """return words of utt and indicate which words are masked out and replaced with speech reps"""
-#     # TODO get full text from MFA transcript using sample_id
-#     # TODO "LJ001-0004=how are <you-2,35,35,33> <doing-32,22,12>.wav"
-#
-#     src_text = src_text.split(" ")
-#     idx_first_sep = src_text.index("</s>")
-#
-#     # get rid of hubert codes
-#     graphemes = src_text[:idx_first_sep+1]
-#
-#     # remove duplicate <mask> tokens
-#     graphemes = dedupe_adjacent(graphemes, token_to_dedupe="<mask>")
-#
-#     # remove < and > so that soundfile can write to wav file
-#     # change mask token to just mask
-#     graphemes = [w if w != "<mask>" else "MASK" for w in graphemes]
-#     # change eos token to EOS
-#     graphemes = [w if w != "</s>" else "EOS" for w in graphemes]
-#
-#     # concat list back to single string
-#     graphemes = "".join(graphemes)
-#
-#     # change weird underscore to normal underscore
-#     graphemes = "".join(c if c != "▁" else "_" for c in graphemes)
-#
-#     # handle hubert codes
-#     codes = src_text[idx_first_sep+1:]
-#
-#     print(src_text)
-#     print(codes)
-#
-#     print(graphemes)
-#
-#     raise RuntimeError
-#
-#     return text
-
 def dump_result(
         is_na_model,
         args,
+        count,
         vocoder,
         sample_id,
         text,
@@ -152,7 +129,11 @@ def dump_result(
         sac_friendly_text,
 ):
     # add useful info to filename
-    filename_no_ext = f"{sample_id}-{sac_friendly_text}"
+    if sample_id and sac_friendly_text:
+        filename_no_ext = f"{sample_id}-{sac_friendly_text}"
+    else:
+        # filename_no_ext = f"{count}-{text}"
+        filename_no_ext = f"{text}"
 
     sample_rate = args.output_sample_rate
     out_root = Path(args.results_path)
@@ -199,22 +180,6 @@ def dump_result(
             wav_tgt_dir.mkdir(exist_ok=True, parents=True)
             sf.write(wav_tgt_dir / f"{filename_no_ext}.{ext}", wave_targ, sample_rate)
 
-def get_batch_iterator_for_utts(
-        utts,
-        dataset,
-        max_sentences,
-        # epoch=1,
-):
-    # initialize the dataset with the correct starting epoch
-    # dataset.set_epoch(epoch)
-
-    # create mini-batches with given size constraints
-    batches = dataset.batch_from_utts(
-        utts,
-        max_sentences,
-    )
-
-    return batches
 
 def main(args):
     assert(args.dump_features or args.dump_waveforms or args.dump_attentions
@@ -233,7 +198,7 @@ def main(args):
     # use the original n_frames_per_step
     task.args.n_frames_per_step = saved_cfg.task.n_frames_per_step
 
-    if txt_file:
+    if args.txt_file:
         # TODO combine train dev and test so we have more options of word-aligned speech reps to choose from?
         task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
     else:
@@ -253,16 +218,26 @@ def main(args):
         logger.info(f"resampling to {args.output_sample_rate}Hz")
 
     generator = task.build_generator([model], args)
+    dataset = task.dataset(args.gen_subset)
 
-    if txt_file:
+    if args.txt_file:
         # generate test sentences in txt file (WARNING: do not have underlying ground truth audio for obj eval!)
-        with open(txt_file, 'r') as f:
-            test_utts = f.readlines()
-        itr = get_batch_iterator_for_utts(test_utts).next_epoch_itr(shuffle=False)
+        with open(args.txt_file, 'r') as f:
+            test_utts = [l.rstrip("\n") for l in f.readlines() if l != "\n" and not l.startswith("#")]
+
+        print("test_utts", test_utts)
+            
+        # create mini-batches with given size constraints
+        itr = dataset.batch_from_utts(
+            test_utts,
+            dataset,
+            max_sentences=args.batch_size,
+            speechreps_add_mask_tokens=args.speechreps_add_mask_tokens
+        )
     else:
         # generate from a subset of corpus (usually test, but can specify train or dev)
         itr = task.get_batch_iterator(
-            dataset=task.dataset(args.gen_subset),
+            dataset=dataset,
             max_tokens=args.max_tokens,
             max_sentences=args.batch_size,
             max_positions=(sys.maxsize, sys.maxsize),
@@ -277,12 +252,6 @@ def main(args):
     Path(args.results_path).mkdir(exist_ok=True, parents=True)
     is_na_model = getattr(model, "NON_AUTOREGRESSIVE", False)
 
-    if txt_file:
-        # TODO combine train dev and test so we have more options of word-aligned speech reps to choose from?
-        dataset = task.dataset(args.gen_subset)
-    else:
-        dataset = task.dataset(args.gen_subset)
-
     vocoder = task.args.vocoder
     count = 0
     with progress_bar.build_progress_bar(args, itr) as t:
@@ -293,7 +262,7 @@ def main(args):
                     dataset, sample, hypos, resample_fn, args.dump_target
             ):
                 count += 1
-                dump_result(is_na_model, args, vocoder, *result)
+                dump_result(is_na_model, args, count, vocoder, *result)
 
     print(f"*** Finished SAC generation of {count} items ***")
 

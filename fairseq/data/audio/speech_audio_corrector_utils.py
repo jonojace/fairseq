@@ -263,7 +263,9 @@ def get_speechreps_for_utt(word_and_word_pos, utt_id, word2speechreps,
 
     return speechreps, speechreps_word_pos, word_and_speechreps
 
-def prepend_speechreps_for_dict_encoding(speechreps, prepend_str="HUB", ignore_eos=True, eos_symbol="</s>"):
+def prepend_speechreps_for_dict_encoding(speechreps, prepend_str="HUB",
+                                         ignore_mask=True, mask_symbol="<mask>",
+                                         ignore_eos=True, eos_symbol="</s>"):
     """
     take list of hubert codes (int from 0 to K-1 where K is number of k-means clusters)
     return a string version suitable for dictionary encoding
@@ -271,6 +273,8 @@ def prepend_speechreps_for_dict_encoding(speechreps, prepend_str="HUB", ignore_e
     new_speechreps = []
     for x in speechreps:
         if ignore_eos and x == eos_symbol:
+            new_speechreps.append(x)
+        elif ignore_mask and x == mask_symbol:
             new_speechreps.append(x)
         else:
             new_speechreps.append(f"{prepend_str}{x}")
@@ -341,8 +345,9 @@ def get_tokens(utt):
     tokens = tmp_tokens
     return tokens
 
-def get_text_inputs(tokens, mask_token,
-                    bpe_whitespace_tok="▁", bpe_whitespace_tok_pos=0,
+def get_text_inputs(tokens, mask_token, padding_idx,
+                    start_word_pos_from_whitespace_pos=True,
+                    bpe_whitespace_tok="▁",
                     eos_symbol="</s>", eos_symbol_pos=0):
     """For test time inference of text not in training corpus
 
@@ -368,6 +373,8 @@ def get_text_inputs(tokens, mask_token,
     graphemes = [▁, h, o, w, ▁, MASK, MASK, MASK, ▁, y, o, u, </s>]
     word_pos_of_graphemes = [0 1 1 1 0 2 2 2 0 3 3 3 0]
     """
+    bpe_whitespace_tok_pos = padding_idx + 1
+
     # get characters and positions of each character
     graphemes = []
     word_pos_of_graphemes = []
@@ -381,15 +388,23 @@ def get_text_inputs(tokens, mask_token,
                 if token["mask"]:
                     graphemes.append(mask_token)
                 else:
+                    # print("in get_text_inputs()", c)
                     graphemes.append(c)
-                word_pos_of_graphemes.append(token["word_pos"])
+                word_pos = token["word_pos"]
+                if start_word_pos_from_whitespace_pos:
+                     word_pos += bpe_whitespace_tok_pos
+                word_pos_of_graphemes.append(word_pos)
 
     graphemes.append(eos_symbol)
-    word_pos_of_graphemes.append(eos_symbol_pos)
+    # word_pos_of_graphemes.append(eos_symbol_pos)
+    word_pos_of_graphemes.append(word_pos + 1)
 
     return graphemes, word_pos_of_graphemes
 
 def get_speechreps_inputs(tokens, word2speechreps,
+                          padding_idx, start_word_pos_from_whitespace_pos=True,
+                          add_mask_tokens=False, mask_token="<mask>", mask_token_word_pos=0,
+                          same_mask_token_pos=False,
                           bpe_whitespace_tok="▁", bpe_whitespace_tok_pos=0,
                           eos_symbol="</s>", eos_symbol_pos=0):
     """
@@ -418,20 +433,37 @@ def get_speechreps_inputs(tokens, word2speechreps,
     speechreps = []
     word_pos_of_speechreps = []
 
+    if start_word_pos_from_whitespace_pos:
+        bpe_whitespace_tok_pos = padding_idx + 1
+
     for token in tokens:
         if token["word"] == bpe_whitespace_tok:
-            speechreps.append(bpe_whitespace_tok)
-            word_pos_of_speechreps.append(bpe_whitespace_tok_pos)
-        elif token["mask"]: # this token is masked in text sequence, so add speechreps for this word
+            pass
+            # speechreps.append(bpe_whitespace_tok)
+            # word_pos_of_speechreps.append(bpe_whitespace_tok_pos)
+        else: # this token is masked in text sequence, so add speechreps for this word
             word_speechreps = get_speechreps_for_word(
                 token["word"], utt_id=None, count_of_word=None, word2speechreps=word2speechreps,
                 randomise=True, remove_dup_prob=1.0, remove_dup_rand_num=False, dropout_p=0.0
             )
-            speechreps.extend(word_speechreps)
-            word_pos_of_speechreps.extend(len(word_speechreps) * [token["word_pos"]])
+
+            word_pos = token["word_pos"]
+            if start_word_pos_from_whitespace_pos:
+                word_pos += bpe_whitespace_tok_pos
+
+            if token["mask"]:
+                speechreps.extend(word_speechreps)
+                word_pos_of_speechreps.extend(len(word_speechreps) * [word_pos])
+            elif add_mask_tokens:
+                speechreps.extend(len(word_speechreps) * [mask_token])
+                if same_mask_token_pos:
+                    word_pos_of_speechreps.extend(len(word_speechreps) * [mask_token_word_pos])
+                else:
+                    word_pos_of_speechreps.extend(len(word_speechreps) * [word_pos])
+
 
     speechreps.append(eos_symbol)
-    word_pos_of_speechreps.append(eos_symbol_pos)
+    word_pos_of_speechreps.append(word_pos + 1)
 
     return speechreps, word_pos_of_speechreps
 
