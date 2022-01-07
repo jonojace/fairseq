@@ -47,7 +47,8 @@ def make_parser():
 
     return parser
 
-def sac_friendly_text(words_and_speechreps, incl_codes=False):
+def sac_friendly_text(words_and_speechreps, incl_codes=False,
+                      upper=False, wrap_speechreps_word=True, delimiter=" "):
     """
     given
     (how, None)
@@ -62,18 +63,23 @@ def sac_friendly_text(words_and_speechreps, incl_codes=False):
         if speechreps is None:
             rv.append(word)
         else:
-            s = f"{word.upper()}"
+            s = f"{word.upper() if upper else word}"
             if incl_codes:
                 raise NotImplementedError # finish this, this currently breaks soundfile as soundfile can't deal with
                 # writing such long filenames to disk
                 codes_str = "-".join(str(sr) for sr in speechreps)
                 s += f"-{codes_str}"
+            if wrap_speechreps_word:
+                s = f"<{s}>"
             rv.append(s)
 
-    return "_".join(rv)
+    return delimiter.join(rv)
+
+def strip_pointy_brackets(s):
+    return "".join(c for c in s if c not in ["<", ">"])
 
 def postprocess_results(
-        dataset: TextToSpeechDataset, sample, hypos, resample_fn, dump_target
+        dataset: TextToSpeechDataset, sample, hypos, resample_fn, dump_target, sort_by_text=True
 ):
     def to_np(x):
         return None if x is None else x.detach().cpu().numpy()
@@ -101,8 +107,20 @@ def postprocess_results(
         feat_targs = [None for _ in hypos]
         wave_targs = [None for _ in hypos]
 
-    return zip(sample_ids, texts, attns, eos_probs, feat_preds, wave_preds,
-               feat_targs, wave_targs, sac_friendly_texts)
+    # sort the samples in batch by the text seq
+    zipped = list(zip(sample_ids, texts, attns, eos_probs, feat_preds, wave_preds,
+               feat_targs, wave_targs, sac_friendly_texts))
+
+    # print("zipped text before sort", [tup[1] for tup in zipped])
+
+    if sort_by_text:
+        # strip_pointy_brackets so that the brackets are not considered when sorting
+        zipped = sorted(zipped, key=lambda tup: strip_pointy_brackets(tup[1]))
+        # print("zipped after sort", zipped)
+        # print("zipped after sort", list(zipped))
+        # print("zipped text after sort", [tup[1] for tup in zipped])
+
+    return zipped
 
 
 def dedupe_adjacent(iterable, token_to_dedupe="<mask>"):
@@ -190,7 +208,7 @@ def filter_utts_whose_words_do_not_have_speechreps(utts, dataset, ignore_list=[]
     missing_tokens = set()
     new_utts = []
 
-    print("DEBUG", list(dataset.word2speechreps.keys()))
+    # print("DEBUG", list(dataset.word2speechreps.keys()))
 
     for utt in utts:
         for token in utt.split(" "):
@@ -208,7 +226,7 @@ def filter_utts_whose_words_do_not_have_speechreps(utts, dataset, ignore_list=[]
     if len(missing_tokens) > 0:
         print(f"\nWARNING {len(missing_tokens)} utts left out from inference. Words not in dataset.word2speechreps are:", missing_tokens)
 
-    print(f"DEBUG", len(utts), len(new_utts))
+    # print(f"DEBUG", len(utts), len(new_utts))
 
     return new_utts
 
@@ -289,10 +307,12 @@ def main(args):
     count = 0
     with progress_bar.build_progress_bar(args, itr) as t:
         for sample in t:
+            # print("DEBUG", sample["src_texts"])
             sample = utils.move_to_cuda(sample) if use_cuda else sample
             hypos = generator.generate(model, sample, has_targ=args.dump_target)
             for result in postprocess_results(
-                    dataset, sample, hypos, resample_fn, args.dump_target
+                    dataset, sample, hypos, resample_fn, args.dump_target,
+                    sort_by_text=True if args.txt_file else False,
             ):
                 count += 1
                 dump_result(is_na_model, args, count, vocoder, args.add_count_to_filename, *result)

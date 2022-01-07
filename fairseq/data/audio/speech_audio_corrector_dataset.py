@@ -212,15 +212,15 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ).long()
         assert len(word_pos_of_speechreps) == len(encoded_speechreps), f"{len(word_pos_of_speechreps)} != {len(encoded_speechreps)}"
 
-        print("\n===", mfa_text)
-        print("***graphemes")
-        print(text_tokenized_masked)
-        print(encoded_text)
-        print(word_pos_of_graphemes)
-        print("***speechreps")
-        print(speechreps)
-        print(encoded_speechreps)
-        print(word_pos_of_speechreps)
+        # print("\n===", mfa_text)
+        # print("***graphemes")
+        # print(text_tokenized_masked)
+        # print(encoded_text)
+        # print(word_pos_of_graphemes)
+        # print("***speechreps")
+        # print(speechreps)
+        # print(encoded_speechreps)
+        # print(word_pos_of_speechreps)
 
         # print("encoded_text", encoded_text)
         # print("encoded_speechreps", encoded_speechreps)
@@ -383,7 +383,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ##############################################
         # some features set to None as they are not
         # necessary for synthesis from text utts
-        d = {
+        return_dict = {
             "id": None,
             "net_input": {
                 "src_tokens": src_tokens,
@@ -407,11 +407,11 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         if samples[0].index is not None:
             id_ = torch.tensor([s.index for s in samples],
                                dtype=torch.long).index_select(0, order)
-            d["id"] = id_
+            return_dict["id"] = id_
 
         if samples[0].words_and_speechreps is not None:
             words_and_speechreps = [samples[i].words_and_speechreps for i in order]
-            d["words_and_speechreps"] = words_and_speechreps
+            return_dict["words_and_speechreps"] = words_and_speechreps
 
         if samples[0].source is not None:
             audio_feat = _collate_frames(
@@ -429,12 +429,12 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
                 (audio_feat.new_zeros((bsz, 1, d)), audio_feat[:, :-1, :]), dim=1
             )
 
-            d["target"] = audio_feat
-            d["net_input"]["prev_output_tokens"] = prev_output_tokens
-            d["target_lengths"] = target_lengths
-            d["ntokens"] = sum(target_lengths).item()
+            return_dict["target"] = audio_feat
+            return_dict["net_input"]["prev_output_tokens"] = prev_output_tokens
+            return_dict["target_lengths"] = target_lengths
+            return_dict["ntokens"] = sum(target_lengths).item()
 
-        return d
+        return return_dict
 
     def batch_from_utts(self, all_utts, dataset, max_sentences, speechreps_add_mask_tokens):
         """
