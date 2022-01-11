@@ -588,8 +588,8 @@ https://nero-docs.stanford.edu/jupyter-slurm.html
 ```bash
 ssh s1785140@escience6.inf.ed.ac.uk # replace s1785140 with your dice username
 srun --part=ILCC_GPU,CDT_GPU --gres=gpu:gtx2080ti:1 --cpus-per-task=1 --mem=8000 --pty bash
-conda activate word-templates
-cd word-templates # (optional) go to project root to change the 'cwd' of jupyter
+conda activate fairseq
+cd examples/speech_audio_corrector/notebooks/ # (optional) go to project root to change the 'cwd' of jupyter
 jupyter-lab --no-browser --ip=0.0.0.0 # or jupyter-lab --no-browser --ip=0.0.0.0
 ```
 
