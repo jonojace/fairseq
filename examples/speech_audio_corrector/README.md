@@ -339,12 +339,9 @@ python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFE
   --dump-waveforms \
   --batch-size 32 \
   --speechreps-add-mask-tokens \
-  --txt-file examples/speech_audio_corrector/test_utts_dev_set_oovs.txt \
+  --txt-file examples/speech_audio_corrector/test_utts_vctk_oovs.txt \
   --add-count-to-filename \
   --use-external-speechreps
-
-mkdir $OUT_DIR/$VOCODER/LJ_TEST_SET
-mv $OUT_DIR/$VOCODER/*.wav $OUT_DIR/$VOCODER/LJ_TEST_SET
 ```
 
 ### Inference from single model at different checkpoints
