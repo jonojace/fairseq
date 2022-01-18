@@ -38,6 +38,7 @@ class SACTransformerEncoder(FairseqEncoder):
     def __init__(self, args, src_dict, embed_speaker):
         super().__init__(src_dict)
         self.padding_idx = src_dict.pad()
+        self.word_pos_pad_idx = 0 # 0: pad, 1 2 3 4 5 ...: word positions
         self.segment_pad_idx = 0 # 0: pad, 1: graphemes, 2: speechreps
         self.embed_speaker = embed_speaker
         self.spk_emb_proj = None
@@ -71,8 +72,14 @@ class SACTransformerEncoder(FairseqEncoder):
         self.prenet_proj = nn.Linear(
             args.encoder_embed_dim, args.encoder_embed_dim
         )
+
+        # Need to supply padding_idx when creating positional embedding
+        # Padding timesteps are those beyond length of audio (upto max seq len in batch) in order to form batches of inputs
+        # if fairseq/fairseq/modules/sinusoidal_positional_embedding.py receives padding_idx
+        # it sets the embedding corresponding to padding_idx to 0. This is desirable
+        # as we do not want the model to think that timesteps corresponding to padding are meaningful.
         self.embed_positions = PositionalEmbedding(
-            args.max_source_positions, args.encoder_embed_dim, self.padding_idx
+            args.max_source_positions, args.encoder_embed_dim, self.word_pos_pad_idx
         )
 
         self.no_word_pos = args.no_word_pos

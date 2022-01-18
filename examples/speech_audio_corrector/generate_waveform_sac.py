@@ -304,8 +304,7 @@ def main(args):
         itr = dataset.batch_from_utts(
             test_utts,
             dataset,
-            max_sentences=args.batch_size,
-            speechreps_add_mask_tokens=args.speechreps_add_mask_tokens,
+            batch_size=args.batch_size,
             use_external_speechreps=args.use_external_speechreps
         )
 
