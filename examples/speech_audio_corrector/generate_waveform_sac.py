@@ -12,6 +12,7 @@ import soundfile as sf
 import sys
 import torch
 import torchaudio
+import os
 
 from fairseq import checkpoint_utils, options, tasks, utils
 from fairseq.logging import progress_bar
@@ -44,6 +45,8 @@ def make_parser():
     )
     parser.add_argument("--speechreps-add-mask-tokens", action="store_true")
     parser.add_argument("--add-count-to-filename", action="store_true")
+    parser.add_argument("--use-external-speechreps", action="store_true",
+                        help="Use this flag if you want to use speechreps from the external dataset to do inference.")
 
     return parser
 
@@ -204,8 +207,13 @@ def dump_result(
             sf.write(wav_tgt_dir / f"{filename_no_ext}.{ext}", wave_targ, sample_rate)
 
 
-def filter_utts_whose_words_do_not_have_speechreps(utts, dataset, ignore_list=[]):
-    missing_tokens = set()
+def filter_utts_whose_words_do_not_have_speechreps(
+        utts,
+        dataset,
+        use_external_speechreps=False,
+        ignore_list=[]
+):
+    missing_words = set()
     new_utts = []
 
     # print("DEBUG", list(dataset.word2speechreps.keys()))
@@ -217,14 +225,16 @@ def filter_utts_whose_words_do_not_have_speechreps(utts, dataset, ignore_list=[]
             else:
                 word = token
 
-            if word not in dataset.word2speechreps and word not in ignore_list:
-                missing_tokens.add(token)
+            w2sr = dataset.ext_word2speechreps if use_external_speechreps else dataset.word2speechreps
+
+            if word not in w2sr and word not in ignore_list:
+                missing_words.add(word)
                 break
         else:
             new_utts.append(utt)
 
-    if len(missing_tokens) > 0:
-        print(f"\nWARNING {len(missing_tokens)} utts left out from inference. Words not in dataset.word2speechreps are:", missing_tokens)
+    if len(missing_words) > 0:
+        print(f"\nWARNING {len(missing_words)} (out of {len(utts)}) utts left out from inference. Words not in dataset.word2speechreps are:", missing_words)
 
     # print(f"DEBUG", len(utts), len(new_utts))
 
@@ -237,6 +247,7 @@ def main(args):
         args.max_tokens = 8000
     logger.info(args)
 
+    # setup model and task
     use_cuda = torch.cuda.is_available() and not args.cpu
     task = tasks.setup_task(args)
     models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task(
@@ -244,17 +255,21 @@ def main(args):
         task=task,
     )
     model = models[0].cuda() if use_cuda else models[0]
+
     # use the original n_frames_per_step
     task.args.n_frames_per_step = saved_cfg.task.n_frames_per_step
 
-    if args.txt_file:
-        # TODO combine train dev and test so we have more options of word-aligned speech reps to choose from?
-        task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
-    else:
-        task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
+    # if args.txt_file:
+    #     # TODO combine train dev and test so we have more options of word-aligned speech reps to choose from?
+    #     task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
+    # else:
+    #     task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
 
+    task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
 
     data_cfg = task.data_cfg
+
+    # set resampling function for post processing of model outputs
     sample_rate = data_cfg.config.get("features", {}).get("sample_rate", 22050)
     resample_fn = {
         False: lambda x: x,
@@ -267,6 +282,7 @@ def main(args):
         logger.info(f"resampling to {args.output_sample_rate}Hz")
 
     generator = task.build_generator([model], args)
+
     dataset = task.dataset(args.gen_subset)
 
     if args.txt_file:
@@ -275,16 +291,24 @@ def main(args):
             test_utts = [l.rstrip("\n") for l in f.readlines() if l != "\n" and not l.startswith("#")]
 
         print("test_utts", test_utts)
+        print("args.use_external_speechreps", args.use_external_speechreps)
 
-        test_utts = filter_utts_whose_words_do_not_have_speechreps(test_utts, dataset, ignore_list=["how", "is", "pronounced"])
+        test_utts = filter_utts_whose_words_do_not_have_speechreps(
+            test_utts,
+            dataset,
+            use_external_speechreps=args.use_external_speechreps,
+            ignore_list=["how", "is", "pronounced"]
+        )
             
         # create mini-batches with given size constraints
         itr = dataset.batch_from_utts(
             test_utts,
             dataset,
             max_sentences=args.batch_size,
-            speechreps_add_mask_tokens=args.speechreps_add_mask_tokens
+            speechreps_add_mask_tokens=args.speechreps_add_mask_tokens,
+            use_external_speechreps=args.use_external_speechreps
         )
+
     else:
         # generate from a subset of corpus (usually test, but can specify train or dev)
         itr = task.get_batch_iterator(
@@ -300,7 +324,12 @@ def main(args):
             data_buffer_size=args.data_buffer_size,
         ).next_epoch_itr(shuffle=False)
 
+    # output to different directory if using external speechreps
+    if args.use_external_speechreps:
+        args.results_path = os.path.join(args.results_path, 'ext_speechreps')
+
     Path(args.results_path).mkdir(exist_ok=True, parents=True)
+
     is_na_model = getattr(model, "NON_AUTOREGRESSIVE", False)
 
     vocoder = task.args.vocoder

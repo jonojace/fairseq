@@ -47,6 +47,7 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
     def add_args(cls, parser):
         super(SpeechAudioCorrectorTask, cls).add_args(parser)
         parser.add_argument("--randomise-examples", action="store_true",)
+        # parser.add_argument("--incl-external-speechreps", action="store_true",)
 
     def __init__(self, args, src_dict):
         super().__init__(args, src_dict)

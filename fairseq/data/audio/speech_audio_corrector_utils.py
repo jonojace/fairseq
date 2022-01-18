@@ -36,6 +36,8 @@ def get_word2speechreps(ids, ids2speechreps, ids2word_alignments):
 
     return word2speechreps
 
+
+
 def get_mfa_text(word_align):
     return " ".join(w['wordtype'] for w in word_align)
 
@@ -406,7 +408,7 @@ def get_speechreps_inputs(tokens, word2speechreps,
                           add_mask_tokens=False, mask_token="<mask>", mask_token_word_pos=0,
                           same_mask_token_pos=False,
                           bpe_whitespace_tok="▁", bpe_whitespace_tok_pos=0,
-                          eos_symbol="</s>", eos_symbol_pos=0):
+                          eos_symbol="</s>", eos_symbol_pos=0,):
     """
     tokens:
     [

@@ -131,6 +131,21 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         self.ids2word_alignments = ids2word_alignments
         self.word2speechreps = get_word2speechreps(ids, ids2speechreps, ids2word_alignments)
 
+        # additional external source of word-aligned speech reps (potentially for more robust multi-speaker corrections)
+        speechrep_file = "/home/s1785140/fairseq/examples/speech_audio_corrector/vctk_quantized.txt"
+        alignments_dir = "/home/s1785140/data/vctk_montreal_alignments_from_trimmed_wavs_no_nested_dirs"
+        ext_ids2speechreps = SpeechAudioCorrectorDatasetCreator.load_speechreps(speechrep_file)
+        ext_ids = list(ext_ids2speechreps.keys())
+        ext_ids2word_alignments = SpeechAudioCorrectorDatasetCreator.load_word_alignments(ext_ids, alignments_dir)
+        self.ext_word2speechreps = get_word2speechreps(
+            ext_ids,
+            ext_ids2speechreps,
+            ext_ids2word_alignments,
+        )
+
+        # print(self.ext_word2speechreps.items())
+        # print('attracting' in self.ext_word2speechreps)
+
         # add SAC specific settings
         self.randomise_examples = args.randomise_examples
         # print("in SpeechAudioCorrectorDataset init() self.randomise_examples is ", self.randomise_examples)
@@ -258,7 +273,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             segment=segment, words_and_speechreps=words_and_speechreps,
         )
 
-    def get_item_from_utt(self, utt: str, dataset, speechreps_add_mask_tokens=False, bpe_token_delimiter=" ") -> SpeechAudioCorrectorDatasetItem:
+    def get_item_from_utt(self, utt: str, dataset, speechreps_add_mask_tokens=False, bpe_token_delimiter=" ", use_external_speechreps=False) -> SpeechAudioCorrectorDatasetItem:
         ################################################################################################################
         # Process text into graphemes rdy for encoding
         # and word positions for each grapheme
@@ -269,9 +284,18 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
         ################################################################################################################
         # Speech reps
-        speechreps, word_pos_of_speechreps = get_speechreps_inputs(tokens, self.word2speechreps,
+        if use_external_speechreps:
+            print("!!!DEBUGGG using self.ext_word2speechreps!!!")
+            w2sr = self.ext_word2speechreps
+        else:
+            w2sr = self.word2speechreps
+
+        # print(w2sr.items())
+        # print('attracting' in w2sr)
+
+        speechreps, word_pos_of_speechreps = get_speechreps_inputs(tokens, w2sr,
                                                                    padding_idx=self.tgt_dict.pad_index,
-                                                                   add_mask_tokens=speechreps_add_mask_tokens)
+                                                                   add_mask_tokens=speechreps_add_mask_tokens,)
         speechreps = prepend_speechreps_for_dict_encoding(speechreps, prepend_str="HUB",
                                                           ignore_mask=True, mask_symbol="<mask>",
                                                           ignore_eos=True, eos_symbol="</s>")
@@ -436,7 +460,12 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
         return return_dict
 
-    def batch_from_utts(self, all_utts, dataset, max_sentences, speechreps_add_mask_tokens):
+    def batch_from_utts(self,
+                        all_utts,
+                        dataset,
+                        max_sentences,
+                        speechreps_add_mask_tokens,
+                        use_external_speechreps):
         """
         return a batches from a list of utts
 
@@ -448,7 +477,10 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         for utt_subset in utt_subsets:
             batch = []  # list of samples
             for utt in utt_subset:
-                sample = self.get_item_from_utt(utt, dataset, speechreps_add_mask_tokens)
+                sample = self.get_item_from_utt(utt,
+                                                dataset,
+                                                speechreps_add_mask_tokens=speechreps_add_mask_tokens,
+                                                use_external_speechreps=use_external_speechreps)
                 batch.append(sample)
             batches.append(batch)
 

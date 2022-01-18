@@ -2,13 +2,11 @@
 
 # Install/setup conda env and fairseq
 
-Install huggingface for getting CTC outputs
-
 ```bash
 conda update -y -n base -c defaults conda
-conda env remove -y --name huggingface
-conda create -y -n huggingface python=3.8 # python must be <=3.8 for pytorch to work
-conda activate huggingface
+conda env remove -y --name fairseq
+conda create -y -n fairseq python=3.8 # python must be <=3.8 for pytorch to work
+conda activate fairseq
 pip install --upgrade pip
 conda install -y pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch # works with ILCC cluster 2080Ti GPU
 pip install transformers datasets soundfile jupyterlab ipywidgets librosa
@@ -318,6 +316,37 @@ mkdir $OUT_DIR/$VOCODER/dev_oovs
 mv $OUT_DIR/$VOCODER/*.wav $OUT_DIR/$VOCODER/dev_oovs
 ```
 
+### Generate using external speechreps (from VCTK)
+
+```bash
+cd ~/fairseq
+
+MODEL=test_sac_normal_masking2
+VOCODER=wav_22050hz_hifigan
+SAVE_DIR=checkpoints/$MODEL
+SPLIT=test
+FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
+NUM=3500
+CHECKPOINT_NAME=epoch${NUM}
+CHECKPOINT_PATH=${SAVE_DIR}/checkpoint${NUM}.pt
+OUT_DIR=inference/$MODEL/${CHECKPOINT_NAME}
+
+python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFEST_ROOT} \
+  --config-yaml config.yaml --gen-subset ${SPLIT} --task speech_audio_corrector \
+  --path ${CHECKPOINT_PATH} --max-tokens 50000 --spec-bwd-max-iter 32 \
+  --results-path $OUT_DIR \
+  --vocoder hifigan \
+  --dump-waveforms \
+  --batch-size 32 \
+  --speechreps-add-mask-tokens \
+  --txt-file examples/speech_audio_corrector/test_utts_dev_set_oovs.txt \
+  --add-count-to-filename \
+  --use-external-speechreps
+
+mkdir $OUT_DIR/$VOCODER/LJ_TEST_SET
+mv $OUT_DIR/$VOCODER/*.wav $OUT_DIR/$VOCODER/LJ_TEST_SET
+```
+
 ### Inference from single model at different checkpoints
 
 ```bash
@@ -542,7 +571,123 @@ fairseq-hydra-train \
     --no-save
 ```
 
+# Generate features for SAC inference
 
+How to generate features for a new dataset.
+
+## Get MFA alignments
+
+We need to generate ground truth alignments for LJ Speech
+
+```bash 
+conda update -y -n base -c defaults conda
+conda env remove -y --name mfa
+conda create -y -n mfa python=3.8 
+conda activate mfa
+mfa model download acoustic english
+mfa model download dictionary english
+
+CORPUS=/home/s1785140/data/vqvae_wavernn_trimmed_wavs
+OUTDIR=/home/s1785140/data/vctk_montreal_alignments_from_trimmed_wavs
+mfa validate $CORPUS english english
+mfa align --clean $CORPUS english english $OUTDIR
+```
+
+## Get HuBERT codes for wavs in corpus 
+
+Instructions @ https://github.com/pytorch/fairseq/tree/main/examples/textless_nlp/gslm/speech2unit
+
+### Resample speech to that required by Hubert (16Khz)
+
+Use fairseq/examples/speech_audio_corrector/bash_scripts/recursive_resample.sh
+
+```bash
+cd ~/data
+for i in vqvae_wavernn_trimmed_wavs/*/*.wav; 
+do 
+#  echo $i 
+  o=vqvae_wavernn_trimmed_wavs_16kHz/${i#vqvae_wavernn_trimmed_wavs/}
+  echo $o
+  speaker_dir="$(dirname "${o}")"
+#  echo $speaker_dir
+  mkdir -p $speaker_dir
+#  sox -v 0.95 "$i" -r 16000 "${o%.wav}.wav" #need to reduce vol to stop clipping of samples?
+  sox "$i" -r 16000 "${o%.wav}.wav"
+done
+```
+
+### Create audio manifests file
+
+create filelists/vctk.txt
+
+Note about the manifest file is a file with paths and length of input audio files. The format of the file is as follows:
+
+Seems to be ok to put 0 for number_of_samples
+
+```bash
+<path_of_root_directory_containing_audio_files>
+<relative_path_of_audio_file_1>\t<number_of_samples1>
+<relative_path_of_audio_file_2>\t<number_of_samples2>
+...
+```
+
+use create_audio_manifest_for_hubert_code_extraction.ipynb
+
+### Download pretrained hubert and k-means clustering models
+
+https://github.com/pytorch/fairseq/tree/main/examples/textless_nlp/gslm/speech2unit#quantization-model
+
+```bash
+cd fairseq/examples/textless_nlp/gslm/speech2unit/
+mkdir -p pretrained_models/hubert
+cd pretrained_models/hubert
+# hubert model
+wget https://dl.fbaipublicfiles.com/hubert/hubert_base_ls960.pt
+# kmeans
+wget https://dl.fbaipublicfiles.com/textless_nlp/gslm/hubert/km100/km.bin
+mv km.bin km100.bin
+```
+
+### extract codes
+
+```bash
+
+TYPE=hubert
+KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km100.bin
+ACSTC_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/hubert_base_ls960.pt
+LAYER=6
+MANIFEST=~/fairseq/examples/speech_audio_corrector/manifests/vctk.txt
+OUT_QUANTIZED_FILE=~/fairseq/examples/speech_audio_corrector/vctk_quantized.txt
+EXTENSION=".wav"
+
+# CUDA_VISIBLE_DEVICES=9
+cd ~/fairseq  
+python examples/textless_nlp/gslm/speech2unit/clustering/quantize_with_kmeans.py \
+    --feature_type $TYPE \
+    --kmeans_model_path $KM_MODEL_PATH \
+    --acoustic_model_path $ACSTC_MODEL_PATH \
+    --layer $LAYER \
+    --manifest_path $MANIFEST \
+    --out_quantized_file_path $OUT_QUANTIZED_FILE \
+    --extension $EXTENSION
+```
+
+# Get CTC-segmentation word alignments for SAC-LR (low resource training of SAC)
+
+No need to use mfa alignments
+
+##Install huggingface for getting CTC outputs
+
+```bash
+conda update -y -n base -c defaults conda
+conda env remove -y --name huggingface
+conda create -y -n huggingface python=3.8 # python must be <=3.8 for pytorch to work
+conda activate huggingface
+pip install --upgrade pip
+conda install -y pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
+```
+
+Use examples/speech_audio_corrector/notebooks/CTC_word_segmentation_hubert.ipynb
 
 # Using tensorboard from local computer 
 
