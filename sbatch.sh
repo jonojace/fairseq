@@ -52,17 +52,51 @@ if [ ! -d $LOG_DIR ]; then
 fi
 
 # =====================
+# rsyncing of data to scratch disk
+# =====================
+# instead of needing to do this, use:
+# onallnodes /home/s1785140/fairseq/examples/speech_audio_corrector/copy_data_to_scratch.sh
+# to copy data to all nodes
+# then use a feature_manifest train.tsv that points to the scratch disk
+
+## determine which node we are on
+#NODENAME=$(echo $HOSTNAME | cut -d. -f1)
+#echo we are on node: $NODENAME
+#if [ $NODENAME = "arnold" ]; then
+#    SCRATCH_DISK_NAME=scratch_fast
+#else
+#    SCRATCH_DISK_NAME=scratch
+#fi
+#
+#if [ -d "/disk/scratch_fast" ]; then echo ok; fi
+#
+## edit path to audio in manifests
+## remove previous ones
+#rm train.tsv
+#rm dev.tsv
+#rm test.tsv
+## add new scratch disk to
+#sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK_NAME}\/s1785140\//g" train_original.tsv > train.tsv
+#sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK_NAME}\/s1785140\//g" dev_original.tsv > dev.tsv
+#sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK_NAME}\/s1785140\//g" test_original.tsv > test.tsv
+## move audio data
+#mkdir -p /disk/${SCRATCH_DISK_NAME}/s1785140
+#rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/${SCRATCH_DISK_NAME}/s1785140
+#ls /disk/${SCRATCH_DISK_NAME}/s1785140
+
+# =====================
+
 # setup sbatch params
 # =====================
 nodes=1
-gpu_num=1
+gpu_num=4
 gpus=${gpu_type}${gpu_num} #note if gpu_type is empty string then it is just gpu_num, which is fine
 cpus=$(( 2*gpu_num ))
 #cpus=1 #might need to use only 1 cpu if node does not have many cores
 tasks=1
 part=ILCC_GPU,CDT_GPU
 # part=ILCC_GPU,CDT_GPU,M_AND_I_GPU
-time=3-00:00:00
+time=7-00:00:00
 #mem=8G
 mem=16G
 mail_user=s1785140@sms.ed.ac.uk
@@ -70,7 +104,8 @@ mail_user=s1785140@sms.ed.ac.uk
 #mail_type=END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT
 # Exclude particular nodes (used when nodes scratch disk is full)
 #exclude_list=""
-exclude_list=arnold
+#exclude_list=arnold
+exclude_list=duflo
 #exclude_list=arnold,duflo
 
 # =====================
@@ -100,7 +135,10 @@ else
       echo "#SBATCH --exclude=${exclude_list}" >> temp_slurm_job.sh
 fi
 
-#rsyncing of data to scratch disk
+#rsyncing of data to scratch disk (need to do in job script since scratch data is isolated within job script)
+echo "SCRATCH_DISK=scratch_fast" >> temp_slurm_job.sh
+echo "mkdir -p /disk/${SCRATCH_DISK}/s1785140" >> temp_slurm_job.sh
+echo "rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/${SCRATCH_DISK}/s1785140" >> temp_slurm_job.sh
 # echo "rsync -avu ${repo_home}/data $scratch_folder/" >> temp_slurm_job.sh #move preprocessed data from repo dir to the scratch disk
 # echo 'if [ "$?" -eq "0" ]' >> temp_slurm_job.sh #'$?' holds result of last command, '0' is success
 # echo 'then' >> temp_slurm_job.sh

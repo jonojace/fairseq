@@ -24,6 +24,15 @@ conda install ipywidgets
 python -m ipykernel install --user --name fairseq --display-name "Python (fairseq)"
 pip install jupyterlab
 pip install torchdistill
+
+# install apex 
+cd
+wget https://developer.download.nvidia.com/compute/cuda/11.1.0/local_installers/cuda_11.1.0_455.23.05_linux.run
+sh cuda_11.1.0_455.23.05_linux.run --silent --toolkit
+echo "export PATH=/usr/local/cuda-11.1/bin:/usr/local/cuda-11.1/nsight-compute-2020.2.0${PATH:+:${PATH}}" >> .bashrc
+echo "export LD_LIBRARY_PATH=/usr/local/cuda-11.2/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> .bashrc
+rm cuda_11.1.0_455.23.05_linux.run
+nvcc # check if it works
 ```
 
 # Setup TTS data 
@@ -50,6 +59,35 @@ python -m examples.speech_synthesis.preprocessing.get_feature_manifest \
   --audio-manifest-root ${AUDIO_MANIFEST_ROOT} \
   --output-root ${FEATURE_MANIFEST_ROOT}
   # --ipa-vocab --use-g2p # commented out as we want raw grapeheme inputs for TAC
+
+#################################################################
+# create new manifest for faster training via scratch disk data
+cd /home/s1785140/data/LJSpeech-1.1/feature_manifest
+# backup old manifest
+if [ ! -f train_original.tsv ]; then
+    echo "train_original.tsv not found!"
+    cp train.tsv train_original.tsv
+fi
+if [ ! -f dev_original.tsv ]; then
+    echo "dev_original.tsv not found!"
+    cp dev.tsv dev_original.tsv
+fi
+if [ ! -f test_original.tsv ]; then
+    echo "test_original.tsv not found!"
+    cp test.tsv test_original.tsv
+fi
+# edit path to audio in manifests
+SCRATCH_DISK=scratch_fast
+sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" train_original.tsv > train.tsv
+sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" dev_original.tsv > dev.tsv
+sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" test_original.tsv > test.tsv
+
+# copy log audio data to scratch space (on current node) 
+mkdir -p /disk/${SCRATCH_DISK}/s1785140 #careful sometimes scratch disk is named something else!!!
+rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/${SCRATCH_DISK}/s1785140
+
+# optional run slurm job to copy data to scratch disk (on all nodes!!!)
+# onallnodes /home/s1785140/fairseq/examples/speech_audio_corrector/copy_data_to_scratch.sh
 ```
 
 # (Optional) setup hifigan vocoder

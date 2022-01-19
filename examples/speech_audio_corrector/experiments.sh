@@ -113,3 +113,38 @@ python -m examples.speech_audio_corrector.generate_waveform_sac ${FEATURE_MANIFE
   --add-count-to-filename
 mkdir $OUT_DIR/$VOCODER/test_oovs
 mv $OUT_DIR/$VOCODER/*.wav $OUT_DIR/$VOCODER/test_oovs
+
+
+# 19 Jan 2022
+# Examine whether refactoring changes to dataset loader broke anything
+cd ~
+source ~/activate_fairseq.sh
+cd ~/fairseq
+NUM_GPUS=1
+NUM_WORKERS=1
+UPDATE_FREQ=2 #2
+MAX_TOKENS=30000 #30000 # 30000 is default for transformer TTS
+CLIP_NORM=0.01 # clip gradients during training to given value (default value is 5.0)
+SAVE_INTERVAL_EPOCHS=1
+VAL_INTERVAL_EPOCHS=1
+
+# data
+FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
+SCRATCH_DISK=scratch_fast
+mkdir -p /disk/${SCRATCH_DISK}/s1785140 #careful sometimes scratch disk is named something else!!!
+rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/${SCRATCH_DISK}/s1785140
+ls /disk/${SCRATCH_DISK}/s1785140
+
+MODEL_NAME=test_refactoring_changes3
+fairseq-train ${FEATURE_MANIFEST_ROOT} \
+  --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
+  --config-yaml config.yaml --train-subset train --valid-subset dev \
+  --num-workers $NUM_WORKERS --max-tokens $MAX_TOKENS --max-update 200000 \
+  --save-interval $SAVE_INTERVAL_EPOCHS --validate-interval $VAL_INTERVAL_EPOCHS \
+  --task speech_audio_corrector --criterion sac_tts --arch sac_transformer \
+  --clip-norm $CLIP_NORM --n-frames-per-step 4 --bce-pos-weight 5.0 \
+  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
+  --encoder-normalize-before --decoder-normalize-before \
+  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
+  --mask-speech-timesteps --randomise-examples \
+  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
