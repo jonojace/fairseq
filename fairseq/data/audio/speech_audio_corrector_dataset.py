@@ -38,6 +38,9 @@ from fairseq.data.audio.speech_audio_corrector_utils import (
     randomly_mask_words,
 )
 
+import os
+import pickle
+
 import textgrid
 from collections import Counter
 from fairseq.tokenizer import tokenize_line
@@ -86,8 +89,9 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             durations: Optional[List[List[int]]] = None,
             pitches: Optional[List[str]] = None,
             energies: Optional[List[str]] = None,
-            ids2speechreps: Dict[Any, List[int]] = None, # TODO change the type hint to correct one
-            ids2word_alignments: Dict[Any, List[Dict[str, Any]]] = None, # TODO change the type hint to correct one
+            word2speechreps: Optional[Dictionary] = None,
+            ext_word2speechreps: Optional[Dictionary] = None,
+            ids2word_alignments: Optional[Dictionary] = None,
     ):
         """
 
@@ -109,9 +113,6 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         - remove duplicate codes
         - provide run length after removing duplicate codes (for run length encoding)
         """
-
-        ################################################################################################################
-        # initialise standard TTS dataset
         super(SpeechAudioCorrectorDataset, self).__init__(
             split, is_train_split, cfg, audio_paths, n_frames,
             src_texts=src_texts, tgt_texts=tgt_texts, speakers=speakers,
@@ -124,39 +125,15 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
         ################################################################################################################
         # add SAC specific CLAs from arg parser to cfg
-
+        self.randomise_examples = args.randomise_examples
 
         ################################################################################################################
         # add SAC specific data structure to this dataset object
         self.word_pos_pad_idx = 0
         self.segment_pad_idx = 0
         self.ids2word_alignments = ids2word_alignments
-        self.word2speechreps = get_word2speechreps(ids, ids2speechreps, ids2word_alignments)
-
-        # TODO move this creation to dataset creator?
-        # additional external source of word-aligned speech reps (potentially for more robust multi-speaker corrections)
-        speechrep_file = "/home/s1785140/fairseq/examples/speech_audio_corrector/vctk_quantized.txt"
-        alignments_dir = "/home/s1785140/data/vctk_montreal_alignments_from_trimmed_wavs_no_nested_dirs"
-        ext_ids2speechreps = SpeechAudioCorrectorDatasetCreator.load_speechreps(speechrep_file)
-        ext_ids = list(ext_ids2speechreps.keys())
-        ext_ids2word_alignments = SpeechAudioCorrectorDatasetCreator.load_word_alignments(ext_ids, alignments_dir)
-        self.ext_word2speechreps = get_word2speechreps(
-            ext_ids,
-            ext_ids2speechreps,
-            ext_ids2word_alignments,
-        )
-
-        # add SAC specific settings
-        self.randomise_examples = args.randomise_examples
-        # print("in SpeechAudioCorrectorDataset init() self.randomise_examples is ", self.randomise_examples)
-
-        # TODO WARNING!!! should make this a CLA! for debugging purposes
-        # for debugging: never allow model to get speechrep information. since words are still being masked
-        # this model should have significantly higher dev set losses or MCD
-        self.mask_all_speechreps = False
-
-
-        # TODO optionally save/load this data structure to disk, so can avoid this slow preprocessing step
+        self.word2speechreps = word2speechreps
+        self.ext_word2speechreps = ext_word2speechreps
 
     def __getitem__(self, index: int) -> SpeechAudioCorrectorDatasetItem:
         ################################################################################################################
@@ -174,7 +151,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         sac_dataset_item = self.get_dataset_item_from_utt(
             masked_text,
             utt_id=utt_id,
-            randomise=args.randomise_examples,
+            randomise=self.randomise_examples,
             index=index,
             source=t2s.source,
             speaker_id=t2s.speaker_id,
@@ -198,7 +175,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ################################################################################################################
         # Process text into tokens
         # each token is a sequence of graphemes and has 1) word position 2) info about whether it is masked or not
-        tokens = get_tokens(utt)
+        tokens = get_tokens(utt, padding_word_pos=self.word_pos_pad_idx)
 
         ################################################################################################################
         # Process tokens into graphemes and word positions for each grapheme
@@ -211,6 +188,8 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         if use_external_speechreps:
             print("!!!DEBUGGG using self.ext_word2speechreps!!!")
             w2sr = self.ext_word2speechreps
+            # TODO add option to combine the two dictionaries together???
+            # do this in dataset creator when the two dictionaries are created
         else:
             w2sr = self.word2speechreps
 
@@ -220,31 +199,31 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ################################################################################################################
         # Encode graphemes and speech reps
         # encode text into int indices, one for each grapheme (incl. whitespace)
-        assert len(word_pos_of_graphemes) == len(graphemes), f"{len(word_pos_of_graphemes)} != {len(graphemes)}"
         encoded_text = self.tgt_dict.encode_line(
             bpe_token_delimiter.join(graphemes), add_if_not_exist=False, append_eos=False
         ).long()
-
-        print("\n===", utt)
-        print("***graphemes")
-        print(graphemes)
-        print(encoded_text)
-        print(word_pos_of_graphemes)
-
+        assert len(word_pos_of_graphemes) == len(graphemes), f"{len(word_pos_of_graphemes)} != {len(graphemes)}"
         assert len(word_pos_of_graphemes) == len(encoded_text), f"{len(word_pos_of_graphemes)} != {len(encoded_text)}"
 
         # encode hubert codes into int indices, one for each hubert code
-        assert len(word_pos_of_speechreps) == len(speechreps), f"{len(word_pos_of_speechreps)} != {len(speechreps)}"
         encoded_speechreps = self.tgt_dict.encode_line(
             bpe_token_delimiter.join(speechreps), add_if_not_exist=False, append_eos=False
         ).long()
+        assert len(word_pos_of_speechreps) == len(speechreps), f"{len(word_pos_of_speechreps)} != {len(speechreps)}"
         assert len(word_pos_of_speechreps) == len(
             encoded_speechreps), f"{len(word_pos_of_speechreps)} != {len(encoded_speechreps)}"
 
-        print("***speechreps")
-        print(speechreps)
-        print(encoded_speechreps)
-        print(word_pos_of_speechreps)
+        # print(f"\n=== raw text :", utt)
+        # print("***tokens")
+        # print("tokens:", tokens)
+        # print("***graphemes")
+        # print("graphemes:", graphemes)
+        # print("encoded_text:", encoded_text)
+        # print("word_pos_of_graphemes:", word_pos_of_graphemes)
+        # print("***speechreps")
+        # print("speechreps:", speechreps)
+        # print("encoded_speechreps:", encoded_speechreps)
+        # print("word_pos_of_speechreps:", word_pos_of_speechreps)
         ################################################################################################################
         # Get length information for text and speechreps
         text_len = len(encoded_text)
@@ -265,8 +244,8 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
         return SpeechAudioCorrectorDatasetItem(
             index=index,
-            source=source,
-            target=target,
+            source=source, # mel spectrogram audio frames
+            target=target, # graphemes concatenated with speech codes + token pos + word pos + segment info
             speaker_id=speaker_id,
             word_pos=word_pos_all_timesteps,
             text_len=text_len,
@@ -489,15 +468,24 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
 
         ################################################################################################################
         # get SAC required data
-        # - speechrep codes for each utt
-        # - word alignments for each utt
+        # dictionary mapping from a wordtype to speech codes for each word example in a corpus
+        cls.word2speechreps_dir = "/home/s1785140/data/word2speechreps"
+
+        # LJSpeech word2speechreps
         speechrep_file = "/home/s1785140/fairseq/examples/speech_audio_corrector/lj_speech_quantized.txt"
         alignments_dir = "/home/s1785140/data/ljspeech_MFA_alignments_from_fb"
-        ids2speechreps = cls.load_speechreps(speechrep_file)
-        ids2word_alignments = cls.load_word_alignments(ids, alignments_dir)
+        word2speechreps, ids2word_alignments = cls.get_word2speechreps(
+            speechrep_file, alignments_dir, ids=ids, corpus="ljspeech", split=split_name, force_creation=False,
+        )
 
-        # print("S2TDataConfig", cfg)
-        # print("S2TDataConfig", cfg.randomise_examples)
+        # VCTK word2speechreps
+        # additional external source of word-aligned speech reps
+        # (potentially for more robust multi-speaker corrections)
+        ext_speechrep_file = "/home/s1785140/fairseq/examples/speech_audio_corrector/vctk_quantized.txt"
+        ext_alignments_dir = "/home/s1785140/data/vctk_montreal_alignments_from_trimmed_wavs_no_nested_dirs"
+        ext_word2speechreps, _ = cls.get_word2speechreps(
+            ext_speechrep_file, ext_alignments_dir, ids=None, corpus="vctk", split=None, force_creation=False,
+        )
 
         sac_dataset = SpeechAudioCorrectorDataset(
             args, split_name, is_train_split, cfg, audio_paths, n_frames,
@@ -507,7 +495,8 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
             bpe_tokenizer=bpe_tokenizer, n_frames_per_step=n_frames_per_step,
             speaker_to_id=speaker_to_id,
             durations=durations, pitches=pitches, energies=energies,
-            ids2speechreps=ids2speechreps, ids2word_alignments=ids2word_alignments,
+            word2speechreps=word2speechreps, ext_word2speechreps=ext_word2speechreps,
+            ids2word_alignments=ids2word_alignments,
         )
 
         return sac_dataset
@@ -534,6 +523,43 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
             )
             utt_id2word_alignments[utt_id] = words_align
         return utt_id2word_alignments
+
+    @classmethod
+    def get_word2speechreps(cls, speechrep_file, alignments_dir, ids, corpus, split, force_creation=False):
+        """
+        fast way to force recreation of data structures is by deleting them from disk @ cls.word2speechreps_dir
+        """
+        # see if existing word2speechreps exists for corpus
+        prepend_str = corpus
+        if split is not None:
+            prepend_str = prepend_str + f"_{split}"
+        filename = f"{prepend_str}_word2speechreps.pickle"
+        filepath = os.path.join(cls.word2speechreps_dir, filename)
+
+        if os.path.isfile(filepath) and not force_creation:
+            # load dict
+            with open(filepath, "rb") as f:
+                word2speechreps, ids2word_alignments = pickle.load(f)
+            print(f"Finished loading word2speechreps for {corpus} {split}. Loaded from {filepath}.")
+        else:
+            if force_creation:
+                print(f"Forced recreation of word2speechreps for {corpus} {split}. Creating...")
+            else:
+                print(f"word2speechreps for {corpus} {split} not found. Creating...")
+            # create dict
+            ids2speechreps = cls.load_speechreps(speechrep_file)
+            if ids is None:
+                # if ids is None then create word2speech reps for the words in all the corpus
+                # if ids is not None create it for only the words in the specified utterance ids
+                ids = list(ids2speechreps.keys())
+            ids2word_alignments = cls.load_word_alignments(ids, alignments_dir)
+            word2speechreps = get_word2speechreps(ids, ids2speechreps, ids2word_alignments)
+            # save dict
+            with open(filepath, "wb") as f:
+                to_dump = (word2speechreps, ids2word_alignments)
+                pickle.dump(to_dump, f)
+            print(f"Finished creating word2speechreps for {corpus} {split}. Saved to {filepath}.")
+        return word2speechreps, ids2word_alignments
 
     @classmethod
     def get_word_alignments(

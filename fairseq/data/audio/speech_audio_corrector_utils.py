@@ -207,17 +207,22 @@ def dropout_timesteps(seq, p):
 def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps, randomise,
                             remove_dup_prob, remove_dup_rand_num, dropout_p):
     """return the speechreps for a wordtype
-
     optionally remove duplicates"""
+
+    # unique_id is a unique identifier for a particular word example
     if utt_id and count_of_word:
         unique_id = f"{utt_id}|{count_of_word}"
     else:
         unique_id = None # just get speechreps for word, pulling from a random utterance
 
-    # get speechreps corresponding to word
+    # get speechreps for word
     if unique_id and not randomise and unique_id in word2speechreps[wordtype]:
+        # particular word example
+        # print("not random!!!")
         word_reps = word2speechreps[wordtype][unique_id]
     else:
+        # random example for a wordtype
+        # print("double check random working!!!")
         random_unique_id = random.sample(word2speechreps[wordtype].keys(), k=1)[0]
         word_reps = word2speechreps[wordtype][random_unique_id]
 
@@ -306,7 +311,7 @@ def mask_according_to_word_pos(x, word_positions, word_positions_to_mask, mask_a
 
 def get_tokens(
         utt,
-        padding_idx, # the index in positional embeddings that correspond to padding
+        padding_word_pos, # the index in positional embeddings that correspond to padding
         bpe_whitespace_tok = "▁",
         eos_tok = "</s>",
         whitespace_constant_word_pos=True, # whether all whitespace tokens should be assigned a constant word position
@@ -356,7 +361,7 @@ def get_tokens(
 
     # for each token create a dict for it that has richer meta information
     token_dicts = []
-    whitespace_word_pos = padding_idx + 1 # whitespace must not equal to padding_idx as embedding for padding is set to all 0's
+    whitespace_word_pos = padding_word_pos + 1 # whitespace must not equal to padding_idx as embedding for padding is set to all 0's
     token_word_pos = whitespace_word_pos + 1
     for token in tokens_with_whitespaces:
         # whitespace
