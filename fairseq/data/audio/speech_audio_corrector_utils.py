@@ -216,13 +216,15 @@ def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps, ra
         unique_id = None # just get speechreps for word, pulling from a random utterance
 
     # get speechreps for word
-    if unique_id and not randomise and unique_id in word2speechreps[wordtype]:
+    get_specific_word_example = (not randomise and unique_id and unique_id in word2speechreps[wordtype])
+
+    if get_specific_word_example:
         # particular word example
         # print("not random!!!")
         word_reps = word2speechreps[wordtype][unique_id]
     else:
         # random example for a wordtype
-        # print("double check random working!!!")
+        # print("random!!!")
         random_unique_id = random.sample(word2speechreps[wordtype].keys(), k=1)[0]
         word_reps = word2speechreps[wordtype][random_unique_id]
 
@@ -458,6 +460,8 @@ def get_text_inputs(tokens, mask_token,
     return graphemes, word_pos_of_graphemes
 
 def get_speechreps_inputs(tokens, word2speechreps,
+                          ext_word2speechreps=None,
+                          use_ext_word2speechreps_p=0.0, # with what probability should we use speech reps from external corpus
                           utt_id=None, #optionally provide this so that correct example can be retrieved rather than a random example
                           randomise=False,
                           bpe_whitespace_tok="▁",
@@ -515,13 +519,29 @@ def get_speechreps_inputs(tokens, word2speechreps,
         else:
             word_counter[token["word"]] += 1
             if token["mask"]: # masked word needs to be replaced by speech reps
-                word_speechreps = get_speechreps_for_word(
-                    token["word"], utt_id=utt_id, count_of_word=word_counter[token["word"]], word2speechreps=word2speechreps,
-                    randomise=randomise, remove_dup_prob=remove_dup_prob,
-                    remove_dup_rand_num=remove_dup_rand_num, dropout_p=dropout_p,
+                # decide where to use either training or external speech reps
+                use_training_data_speechreps = (
+                        use_ext_word2speechreps_p == 0.0 # never use ext speechreps
+                        or random.random() < 1.0 - use_ext_word2speechreps_p # randomly decide whether to use training speech reps
+                        or token["word"] not in ext_word2speechreps # cannot use ext speech reps because wordtype not found in ext corpus
                 )
+                if use_training_data_speechreps:
+                    # print("debug using training data speechreps")
+                    w2sr = word2speechreps
+                else:
+                    # print("debug using external data speechreps")
+                    w2sr = ext_word2speechreps
+
+                #retrieve speech reps
+                word_speechreps = get_speechreps_for_word(
+                    token["word"], utt_id=utt_id, count_of_word=word_counter[token["word"]],
+                    word2speechreps=w2sr, randomise=randomise,
+                    remove_dup_prob=remove_dup_prob, remove_dup_rand_num=remove_dup_rand_num, dropout_p=dropout_p,
+                )
+
                 speechreps.extend(word_speechreps)
                 word_pos_of_speechreps.extend(len(word_speechreps) * [token["word_pos"]])
+
             else: # unmasked word, do not need to add mask tokens
                 pass
 

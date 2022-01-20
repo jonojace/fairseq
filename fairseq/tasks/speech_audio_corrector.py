@@ -47,6 +47,8 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
     def add_args(cls, parser):
         super(SpeechAudioCorrectorTask, cls).add_args(parser)
         parser.add_argument("--randomise-examples", action="store_true",)
+        parser.add_argument("--use-ext-word2speechreps-p", type=float, default=0.0,
+                            help="The probability with which to use speech codes from external corpus (VCTK) during training or inference.")
         # parser.add_argument("--incl-external-speechreps", action="store_true",)
 
     def __init__(self, args, src_dict):

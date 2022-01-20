@@ -45,13 +45,6 @@ import textgrid
 from collections import Counter
 from fairseq.tokenizer import tokenize_line
 
-# class S2TDataConfig(S2TDataConfig):
-#     @property
-#     def randomise_examples(self):
-#         """whether to retrieve speechreps corresponding to the exact word example in an utterance
-#         or speechreps from another randomly picked example of that wordtype in the entire speech corpus"""
-#         return self.config.get("randomise_examples", False)
-
 def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
@@ -92,6 +85,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             word2speechreps: Optional[Dictionary] = None,
             ext_word2speechreps: Optional[Dictionary] = None,
             ids2word_alignments: Optional[Dictionary] = None,
+            use_ext_word2speechreps_p: Optional[float] = 0.0,
     ):
         """
 
@@ -126,6 +120,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ################################################################################################################
         # add SAC specific CLAs from arg parser to cfg
         self.randomise_examples = args.randomise_examples
+        self.use_ext_word2speechreps_p = args.use_ext_word2speechreps_p
 
         ################################################################################################################
         # add SAC specific data structure to this dataset object
@@ -185,15 +180,20 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ################################################################################################################
         # Process tokens into speech codes and word positions for each speech code
 
-        if use_external_speechreps:
-            print("!!!DEBUGGG using self.ext_word2speechreps!!!")
-            w2sr = self.ext_word2speechreps
-            # TODO add option to combine the two dictionaries together???
-            # do this in dataset creator when the two dictionaries are created
-        else:
-            w2sr = self.word2speechreps
+        # if use_external_speechreps:
+        #     print("!!!DEBUGGG using self.ext_word2speechreps!!!")
+        #     w2sr = self.ext_word2speechreps
+        #     # TODO add option to combine the two dictionaries together???
+        #     # do this in dataset creator when the two dictionaries are created
+        # else:
+        #     w2sr = self.word2speechreps
 
-        speechreps, word_pos_of_speechreps = get_speechreps_inputs(tokens, w2sr, utt_id=utt_id, randomise=randomise)
+        speechreps, word_pos_of_speechreps = get_speechreps_inputs(
+            tokens, self.word2speechreps,
+            ext_word2speechreps=self.ext_word2speechreps,
+            use_ext_word2speechreps_p=self.use_ext_word2speechreps_p,
+            utt_id=utt_id, randomise=randomise
+        )
         speechreps = prepend_speechreps_for_dict_encoding(speechreps)
 
         ################################################################################################################
