@@ -97,6 +97,8 @@ class SACCriterion(Tacotron2Criterion):
         if not model.encoder.no_word_pos:
             logging_output["word_pos_emb_alpha"] = utils.item(model.encoder.word_pos_emb_alpha),
 
+        # print("DEBUG inside SACCriterion forward(), logging_output", logging_output)
+
         return loss, sample_size, logging_output
 
     @classmethod
@@ -114,8 +116,10 @@ class SACCriterion(Tacotron2Criterion):
         # log other metrics
         seg_emb_alpha = logging_outputs[0].get("seg_emb_alpha", 0)
         pos_emb_alpha = logging_outputs[0].get("pos_emb_alpha", 0)
+        word_pos_emb_alpha = logging_outputs[0].get("word_pos_emb_alpha", 0)
         metrics.log_scalar("seg_emb_alpha", seg_emb_alpha, 0)
         metrics.log_scalar("pos_emb_alpha", pos_emb_alpha, 0)
+        metrics.log_scalar("word_pos_emb_alpha", word_pos_emb_alpha, 0)
 
         # inference metrics
         if "targ_frames" not in logging_outputs[0]:

@@ -115,6 +115,7 @@ class FairseqDataset(torch.utils.data.Dataset, EpochListening):
         from fairseq.data import data_utils
 
         fixed_shapes = self.get_batch_shapes()
+        print("fixed_shapes is", fixed_shapes)
         if fixed_shapes is not None:
 
             def adjust_bsz(bsz, num_tokens):
@@ -128,6 +129,7 @@ class FairseqDataset(torch.utils.data.Dataset, EpochListening):
                     and bsz % required_batch_size_multiple != 0
                 ):
                     bsz -= bsz % required_batch_size_multiple
+                print("INSIDE adjust_bsz()", bsz, max_sentences)
                 return bsz
 
             fixed_shapes = np.array(

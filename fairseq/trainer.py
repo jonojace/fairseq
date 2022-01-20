@@ -1402,9 +1402,11 @@ class Trainer(object):
                 )
 
     def _reduce_and_log_stats(self, logging_outputs, sample_size, grad_norm=None):
+        # print("in _reduce_and_log_stats", grad_norm, type(grad_norm), not torch.is_tensor(grad_norm), torch.isfinite(grad_norm))
         if grad_norm is not None and (
             not torch.is_tensor(grad_norm) or torch.isfinite(grad_norm)
         ):
+            # print("INSIDE IF STATEMENT")
             metrics.log_speed("ups", 1.0, priority=100, round=2)
             metrics.log_scalar("gnorm", grad_norm, priority=400, round=3)
             if self.cfg.optimization.clip_norm > 0:

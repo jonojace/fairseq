@@ -25,14 +25,19 @@ python -m ipykernel install --user --name fairseq --display-name "Python (fairse
 pip install jupyterlab
 pip install torchdistill
 
+# get latest version of gcc (for installing apex)
+# remove cluster-scripts from PATH i.e.:
+PATH=/opt/mendeleydesktop/bin:/usr/lib64/qt-3.3/bin:/opt/mendeleydesktop/bin:/home/s1785140/miniconda3/bin:/home/s1785140/miniconda3/condabin:/home/s1785140/miniconda3/bin:/usr/local/bin:/usr/lib/jvm/java-1.8.0/bin:/opt/texlive/2019/bin/x86_64-linux:/usr/local/sbin:/usr/bin:/sbin:/usr/pgsql-12/bin:/opt/sicstus-4.0.1/bin
+scl enable devtoolset-10 bash
+
 # install apex 
 cd
-wget https://developer.download.nvidia.com/compute/cuda/11.1.0/local_installers/cuda_11.1.0_455.23.05_linux.run
-sh cuda_11.1.0_455.23.05_linux.run --silent --toolkit
-echo "export PATH=/usr/local/cuda-11.1/bin:/usr/local/cuda-11.1/nsight-compute-2020.2.0${PATH:+:${PATH}}" >> .bashrc
-echo "export LD_LIBRARY_PATH=/usr/local/cuda-11.2/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> .bashrc
-rm cuda_11.1.0_455.23.05_linux.run
-nvcc # check if it works
+export LD_LIBRARY_PATH=/opt/cuda-10.2.89_440_33/lib64/
+export PATH=$PATH:/opt/cuda-10.2.89_440_33/bin
+whereis nvcc # check if it works
+git clone https://github.com/NVIDIA/apex
+cd apex
+pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
 ```
 
 # Setup TTS data 
@@ -77,10 +82,17 @@ if [ ! -f test_original.tsv ]; then
     cp test.tsv test_original.tsv
 fi
 # edit path to audio in manifests
-SCRATCH_DISK=scratch_fast
+SCRATCH_DISK=scratch_fast # for nodes with faster scratch
 sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" train_original.tsv > train.tsv
 sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" dev_original.tsv > dev.tsv
 sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" test_original.tsv > test.tsv
+
+cd /home/s1785140/data/LJSpeech-1.1/feature_manifest_standardscratch # for nodes with slower scratch
+SCRATCH_DISK=scratch
+sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" train_original.tsv > train.tsv
+sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" dev_original.tsv > dev.tsv
+sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" test_original.tsv > test.tsv
+
 
 # copy log audio data to scratch space (on current node) 
 mkdir -p /disk/${SCRATCH_DISK}/s1785140 #careful sometimes scratch disk is named something else!!!
@@ -107,7 +119,7 @@ Then add --vocoder hifigan to model training commands
 
 # Vanilla TTS training command
 ```bash
-NUM_GPUS=4
+NUM_GPUS=2
 CPUS_PER_TASK=2
 MEM=32000
 EXCLUDE=arnold
@@ -743,8 +755,14 @@ ensure node has internet access (GPU nodes often do not)
 
 ```bash
 source activate_fairseq.sh
-tensorboard --logdir=tb_logs/ --port 1337 --bind_all
+tensorboard \
+    --logdir=tb_logs/ \
+    --port 1337 --bind_all \
+    --max_reload_threads 4 # speed up loading of runs in log dir
 ```
+
+If tensorboard is loading very slowly (perhaps because too many models in the logdir)
+move some log folders out in old_tb_logs dir.
 
 
 ## Tips
