@@ -101,7 +101,7 @@ class SACTransformerEncoder(FairseqEncoder):
         else:
             self.layer_norm = None
 
-        self.mask_speech_timesteps = args.mask_speech_timesteps
+        self.dont_mask_encoder_out_speech_timesteps = args.dont_mask_encoder_out_speech_timesteps
 
         self.apply(encoder_init)
 
@@ -161,12 +161,12 @@ class SACTransformerEncoder(FairseqEncoder):
         # Create a new padding mask for the transformer decoder that pads out the speechreps sequence so that
         # the transformer decoder cannot attend over those output timesteps, and instead can only attend
         # over timesteps that correspond to the input graphemes
-        if self.mask_speech_timesteps:
+        if self.dont_mask_encoder_out_speech_timesteps:
+            encoder_padding_mask = graphemes_and_speechreps_padding_mask
+        else:
             grapheme_segment_idx = 1 # pad idx is 0, speechreps idx is 2
             graphemes_padding_mask = src_segments.ne(grapheme_segment_idx) # pad everything BUT the graphemes (1 indicate to pad a position)
             encoder_padding_mask = graphemes_padding_mask
-        else:
-            encoder_padding_mask = graphemes_and_speechreps_padding_mask
 
         return {
             "encoder_out": [x],  # T x B x C
@@ -262,6 +262,12 @@ class TTSTransformerDecoder(FairseqIncrementalDecoder):
         attn: Optional[torch.Tensor] = None
         inner_states: List[Optional[torch.Tensor]] = [x]
         for idx, transformer_layer in enumerate(self.transformer_layers):
+            # debug_val = (
+            #             encoder_out is not None
+            #             and len(encoder_out["encoder_padding_mask"]) > 0
+            #     )
+            # print("DEBUG encoder_padding_mask", debug_val, len(encoder_out["encoder_padding_mask"]), encoder_out["encoder_padding_mask"][0].size())
+
             if incremental_state is None:
                 self_attn_mask = self.buffered_future_mask(x)
             else:
@@ -366,7 +372,7 @@ class SACTransformerModel(FairseqEncoderDecoderModel):
         parser.add_argument("--activation-dropout", "--relu-dropout", type=float)
         parser.add_argument("--activation-fn", type=str, default="relu")
         # Encoder outputs masking
-        parser.add_argument("--mask-speech-timesteps", action='store_true',
+        parser.add_argument("--dont-mask-encoder-out-speech-timesteps", action='store_true',
                             help='by default decoder can attend to encoder timesteps of graphemes and speech,'
                                  'can optionally only attend to grapheme timesteps by masking speech timesteps.')
         parser.add_argument("--no-word-pos", action='store_true',
@@ -439,7 +445,7 @@ def base_architecture(args):
     args.activation_dropout = getattr(args, "activation_dropout", 0.0)
     args.activation_fn = getattr(args, "activation_fn", "relu")
     # Encoder outputs masking
-    args.mask_speech_timesteps = getattr(args, "mask_speech_timesteps", False)
+    args.dont_mask_encoder_out_speech_timesteps = getattr(args, "dont_mask_encoder_out_speech_timesteps", False)
     args.no_word_pos = getattr(args, "no_word_pos", False)
     # decoder prenet
     args.prenet_dropout = getattr(args, "prenet_dropout", 0.5)
