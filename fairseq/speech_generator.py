@@ -242,11 +242,12 @@ class SACAutoRegressiveSpeechGenerator(SpeechGenerator):
         raw_dim = out_dim // n_frames_per_step
 
         # get SAC specific inputs
+        src_token_pos = sample["net_input"]["src_token_pos"]
         src_word_pos = sample["net_input"]["src_word_pos"]
         src_segments = sample["net_input"]["src_segments"]
 
         # initialize
-        encoder_out = model.forward_encoder(src_tokens, src_word_pos,
+        encoder_out = model.forward_encoder(src_tokens, src_token_pos, src_word_pos,
                                             src_segments, src_lengths,
                                             speaker=sample["speaker"])
         incremental_state = {}

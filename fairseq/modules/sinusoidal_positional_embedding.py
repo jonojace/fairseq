@@ -90,6 +90,9 @@ class SinusoidalPositionalEmbedding(nn.Module):
             positions = utils.make_positions(
                 input, self.padding_idx, onnx_trace=self.onnx_trace
             )
+        else:
+            # print("positions is None, positions[1]:", positions[1])
+            pass
 
         if self.onnx_trace:
             flat_embeddings = self.weights.detach().index_select(0, positions.view(-1))

@@ -155,7 +155,7 @@ To submit as a slurm job, prepend the slurm script:
 ```bash
 MODEL_NAME=test_model3
 DATA=/home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/word_level/
-./sbatch.sh 2080 fairseq-train $DATA \
+../sbatch.sh 2080 fairseq-train $DATA \
     --tensorboard-logdir tb_logs/$MODEL_NAME \
     --task learn_lexicon \
     --arch lexicon_learner \

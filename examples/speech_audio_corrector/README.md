@@ -65,41 +65,46 @@ python -m examples.speech_synthesis.preprocessing.get_feature_manifest \
   --output-root ${FEATURE_MANIFEST_ROOT}
   # --ipa-vocab --use-g2p # commented out as we want raw grapeheme inputs for TAC
 
-#################################################################
-# create new manifest for faster training via scratch disk data
-cd /home/s1785140/data/LJSpeech-1.1/feature_manifest
-# backup old manifest
-if [ ! -f train_original.tsv ]; then
-    echo "train_original.tsv not found!"
-    cp train.tsv train_original.tsv
-fi
-if [ ! -f dev_original.tsv ]; then
-    echo "dev_original.tsv not found!"
-    cp dev.tsv dev_original.tsv
-fi
-if [ ! -f test_original.tsv ]; then
-    echo "test_original.tsv not found!"
-    cp test.tsv test_original.tsv
-fi
-# edit path to audio in manifests
-SCRATCH_DISK=scratch_fast # for nodes with faster scratch
-sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" train_original.tsv > train.tsv
-sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" dev_original.tsv > dev.tsv
-sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" test_original.tsv > test.tsv
+##################################################################
+## create new manifest for faster training via scratch disk data
+#cd /home/s1785140/data/LJSpeech-1.1/feature_manifest
+## backup old manifest
+#if [ ! -f train_original.tsv ]; then
+#    echo "train_original.tsv not found!"
+#    cp train.tsv train_original.tsv
+#fi
+#if [ ! -f dev_original.tsv ]; then
+#    echo "dev_original.tsv not found!"
+#    cp dev.tsv dev_original.tsv
+#fi
+#if [ ! -f test_original.tsv ]; then
+#    echo "test_original.tsv not found!"
+#    cp test.tsv test_original.tsv
+#fi
+## edit path to audio in manifests
+#SCRATCH_DISK=scratch_fast # for nodes with faster scratch
+#sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" train_original.tsv > train.tsv
+#sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" dev_original.tsv > dev.tsv
+#sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" test_original.tsv > test.tsv
+#
+#cd /home/s1785140/data/LJSpeech-1.1/feature_manifest_standardscratch # for nodes with slower scratch
+#SCRATCH_DISK=scratch
+#sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" train_original.tsv > train.tsv
+#sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" dev_original.tsv > dev.tsv
+#sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" test_original.tsv > test.tsv
+#
+## copy log audio data to scratch space (on current node) 
+#mkdir -p /disk/${SCRATCH_DISK}/s1785140 #careful sometimes scratch disk is named something else!!!
+#rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/${SCRATCH_DISK}/s1785140
+#
+## optional run slurm job to copy data to scratch disk (on all nodes!!!)
+## onallnodes /home/s1785140/fairseq/examples/speech_audio_corrector/copy_data_to_scratch.sh
+```
 
-cd /home/s1785140/data/LJSpeech-1.1/feature_manifest_standardscratch # for nodes with slower scratch
-SCRATCH_DISK=scratch
-sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" train_original.tsv > train.tsv
-sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" dev_original.tsv > dev.tsv
-sed "s/\/home\/s1785140\/data\/LJSpeech-1.1\/feature_manifest\//\/disk\/${SCRATCH_DISK}\/s1785140\//g" test_original.tsv > test.tsv
+To investigate what scratch disks are available on a node get an interactive job on it:
 
-
-# copy log audio data to scratch space (on current node) 
-mkdir -p /disk/${SCRATCH_DISK}/s1785140 #careful sometimes scratch disk is named something else!!!
-rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/${SCRATCH_DISK}/s1785140
-
-# optional run slurm job to copy data to scratch disk (on all nodes!!!)
-# onallnodes /home/s1785140/fairseq/examples/speech_audio_corrector/copy_data_to_scratch.sh
+```bash
+NODE=duflo; srun --part=ILCC_GPU,CDT_GPU --nodelist=$NODE --pty bash
 ```
 
 # (Optional) setup hifigan vocoder
@@ -586,7 +591,7 @@ To submit as a slurm job, prepend the slurm script:
 ```bash
 MODEL_NAME=test_model3
 DATA=/home/s1785140/data/ljspeech_wav2vec2_reps/wav2vec2-large-960h/layer-15/word_level/
-./sbatch.sh 2080 fairseq-train $DATA \
+../sbatch.sh 2080 fairseq-train $DATA \
     --tensorboard-logdir tb_logs/$MODEL_NAME \
     --task learn_lexicon \
     --arch lexicon_learner \

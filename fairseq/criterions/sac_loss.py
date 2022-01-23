@@ -42,6 +42,7 @@ class SACCriterion(Tacotron2Criterion):
         eos_tgt = eos_tgt.view(1, max_len).expand(bsz, -1)
         eos_tgt = (eos_tgt == (feat_len - 1)).float()
         src_tokens = sample["net_input"]["src_tokens"]
+        src_token_pos = sample["net_input"]["src_token_pos"]
         src_word_pos = sample["net_input"]["src_word_pos"]
         src_segments = sample["net_input"]["src_segments"]
         src_lens = sample["net_input"]["src_lengths"]
@@ -49,6 +50,7 @@ class SACCriterion(Tacotron2Criterion):
 
         feat_out, eos_out, extra = model(
             src_tokens=src_tokens,
+            src_token_pos=src_token_pos,
             src_word_pos=src_word_pos,
             src_segments=src_segments,
             src_lengths=src_lens,
@@ -93,9 +95,8 @@ class SACCriterion(Tacotron2Criterion):
             "seg_emb_alpha": utils.item(model.encoder.seg_emb_alpha),
             "pos_emb_alpha": utils.item(model.encoder.pos_emb_alpha),
         }
-
         if not model.encoder.no_word_pos:
-            logging_output["word_pos_emb_alpha"] = utils.item(model.encoder.word_pos_emb_alpha),
+            logging_output["word_pos_emb_alpha"] = utils.item(model.encoder.word_pos_emb_alpha)
 
         # print("DEBUG inside SACCriterion forward(), logging_output", logging_output)
 

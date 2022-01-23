@@ -261,7 +261,13 @@ def make_positions(tensor, padding_idx: int, onnx_trace: bool = False):
     # prefers ints, cumsum defaults to output longs, and ONNX doesn't know
     # how to handle the dtype kwarg in cumsum.
     mask = tensor.ne(padding_idx).int()
-    return (torch.cumsum(mask, dim=1).type_as(mask) * mask).long() + padding_idx
+    positions = (torch.cumsum(mask, dim=1).type_as(mask) * mask).long() + padding_idx
+
+    # # NOTE careful printing this will produce positions from decoder pos embeddings and from enc pos embeddings!
+    # print(f"inside make_positions(), padding_idx:{padding_idx} tensor[1]:", tensor[1])
+    # print(f"inside make_positions(), padding_idx:{padding_idx} positions[1]:", positions[1])
+
+    return positions
 
 
 def strip_pad(tensor, pad):

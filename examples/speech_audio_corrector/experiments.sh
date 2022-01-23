@@ -125,6 +125,7 @@ EXCLUDE=
 srun --part=ILCC_GPU,CDT_GPU --gres=gpu:$NUM_GPUS --cpus-per-task=$CPUS_PER_TASK --mem=$MEM --exclude=$EXCLUDE --pty bash
 
 source ~/activate_fairseq.sh
+
 cd ~/fairseq
 UPDATE_FREQ=1
 NUM_WORKERS=1
@@ -133,18 +134,9 @@ CLIP_NORM=0.01 # clip gradients during training to given value (default value is
 SAVE_INTERVAL_EPOCHS=1
 VAL_INTERVAL_EPOCHS=1
 
-# scratch disk
-#FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
-FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest_standardscratch
-
-SCRATCH_DISK=scratch
-mkdir -p /disk/${SCRATCH_DISK}/s1785140 #careful sometimes scratch disk is named something else!!!
-rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/${SCRATCH_DISK}/s1785140
-ls /disk/${SCRATCH_DISK}/s1785140
-SCRATCH_DISK=scratch_fast
-mkdir -p /disk/${SCRATCH_DISK}/s1785140 #careful sometimes scratch disk is named something else!!!
-rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/${SCRATCH_DISK}/s1785140
-ls /disk/${SCRATCH_DISK}/s1785140
+FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
+scratch_disk=$(bash examples/speech_audio_corrector/bash_scripts/check_scratchdisks.sh)
+echo "scratch_disk is $scratch_disk"
 
 MODEL_NAME=test_train_with_ext_speechreps
 fairseq-train ${FEATURE_MANIFEST_ROOT} \
@@ -158,4 +150,5 @@ fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --encoder-normalize-before --decoder-normalize-before \
   --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
   --randomise-examples --use-ext-word2speechreps-p 0.5 \
+  --new-logmelspec-dir ${scratch_disk} \
   --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss

@@ -38,6 +38,7 @@ class SACTransformerEncoder(FairseqEncoder):
     def __init__(self, args, src_dict, embed_speaker):
         super().__init__(src_dict)
         self.padding_idx = src_dict.pad()
+        self.token_pos_pad_idx = 0
         self.word_pos_pad_idx = 0 # 0: pad, 1 2 3 4 5 ...: word positions
         self.segment_pad_idx = 0 # 0: pad, 1: graphemes, 2: speechreps
         self.embed_speaker = embed_speaker
@@ -78,8 +79,13 @@ class SACTransformerEncoder(FairseqEncoder):
         # if fairseq/fairseq/modules/sinusoidal_positional_embedding.py receives padding_idx
         # it sets the embedding corresponding to padding_idx to 0. This is desirable
         # as we do not want the model to think that timesteps corresponding to padding are meaningful.
+        assert self.token_pos_pad_idx == self.word_pos_pad_idx
         self.embed_positions = PositionalEmbedding(
-            args.max_source_positions, args.encoder_embed_dim, self.word_pos_pad_idx
+            num_embeddings=args.max_source_positions,
+            embedding_dim=args.encoder_embed_dim,
+            padding_idx=self.word_pos_pad_idx,
+            # padding_idx=self.padding_idx,
+            learned=False
         )
 
         self.no_word_pos = args.no_word_pos
@@ -105,7 +111,7 @@ class SACTransformerEncoder(FairseqEncoder):
 
         self.apply(encoder_init)
 
-    def forward(self, src_tokens, src_word_pos, src_segments, src_lengths=None, speaker=None, **kwargs):
+    def forward(self, src_tokens, src_token_pos, src_word_pos, src_segments, src_lengths=None, speaker=None, **kwargs):
         ################################################################################################################
         # Create inputs
 
@@ -123,18 +129,45 @@ class SACTransformerEncoder(FairseqEncoder):
         # segment information (text or speechreps segment)
         embedded_src_segments = self.embed_segments(src_segments)
         x += self.seg_emb_alpha * embedded_src_segments
-        # x += embedded_src_segments # TODO turn off weight on segment embeddings?
 
         # token positions
-        graphemes_and_speechreps_padding_mask = src_tokens.eq(self.padding_idx) # note that this only pads after speechreps
-        embedded_token_positions = self.embed_positions(graphemes_and_speechreps_padding_mask)
+        embedded_token_positions = self.embed_positions(
+            input=src_token_pos,
+            positions=src_token_pos,
+        )
         x += self.pos_emb_alpha * embedded_token_positions
+
+        #############################################################################################
+        # print("src_segments[0]", src_segments[0])
+        # print("embedded_src_segments[0].size()", embedded_src_segments[0].size())
+        # print("embedded_src_segments[0].sum(dim=1)", embedded_src_segments[0].sum(dim=1))
+
+        # print("src_segments[1]", src_segments[1])
+        # print("embedded_src_segments[1].size()", embedded_src_segments[1].size())
+        # print("embedded_src_segments[1].sum(dim=1)", embedded_src_segments[1].sum(dim=1))
+
+        #############################################################################################
+        # print("embedded_token_positions[0].size()", embedded_token_positions[0].size())
+        # print("embedded_token_positions[0].sum(dim=1)", embedded_token_positions[0].sum(dim=1))
+
+        # print("embedded_token_positions[1].size()", embedded_token_positions[1].size())
+        # print("embedded_token_positions[1].sum(dim=1)", embedded_token_positions[1].sum(dim=1))
 
         # word positions
         if not self.no_word_pos:
-            embedded_word_positions = self.embed_positions(src_word_pos, positions=src_word_pos)
+            embedded_word_positions = self.embed_positions(
+                input=src_word_pos, # needed incase seq_len too long and need to increase size of embedding table
+                positions=src_word_pos # the actual positions to encode
+            )
             morphed_word_positions = self.morph_word_pos(embedded_word_positions)
             x += self.word_pos_emb_alpha * morphed_word_positions
+
+        #############################################################################################
+        # print("embedded_word_positions[0].size()", embedded_word_positions[0].size())
+        # print("embedded_word_positions[0].sum(dim=1)", embedded_word_positions[0].sum(dim=1))
+
+        # print("embedded_word_positions[1].size()", embedded_word_positions[1].size())
+        # print("embedded_word_positions[1].sum(dim=1)", embedded_word_positions[1].sum(dim=1))
 
         ################################################################################################################
         # Pass inputs through model
@@ -144,6 +177,17 @@ class SACTransformerEncoder(FairseqEncoder):
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
+
+        #############################################################################################
+        graphemes_and_speechreps_padding_mask = src_tokens.eq(self.padding_idx)  # False for grapheme+speech timesteps, True for padding timesteps
+
+        # print("graphemes_and_speechreps_padding_mask[0].size()", graphemes_and_speechreps_padding_mask[0].size())
+        # print("graphemes_and_speechreps_padding_mask[0]", graphemes_and_speechreps_padding_mask[0])
+        # print("graphemes_and_speechreps_padding_mask[0].sum(dim=0)", graphemes_and_speechreps_padding_mask[0].sum(dim=0))
+
+        # print("graphemes_and_speechreps_padding_mask[1].size()", graphemes_and_speechreps_padding_mask[1].size())
+        # print("graphemes_and_speechreps_padding_mask[1]", graphemes_and_speechreps_padding_mask[1])
+        # print("graphemes_and_speechreps_padding_mask[1].sum(dim=0)", graphemes_and_speechreps_padding_mask[1].sum(dim=0))
 
         for layer in self.transformer_layers:
             x = layer(x, graphemes_and_speechreps_padding_mask)
@@ -158,18 +202,30 @@ class SACTransformerEncoder(FairseqEncoder):
             x = self.spk_emb_proj(torch.cat([x, emb], dim=2))
 
         ################################################################################################################
-        # Create a new padding mask for the transformer decoder that pads out the speechreps sequence so that
-        # the transformer decoder cannot attend over those output timesteps, and instead can only attend
-        # over timesteps that correspond to the input graphemes
+        # Create a new padding mask for the transformer decoder to limit what timesteps of encoder out it can attend over
         if self.dont_mask_encoder_out_speech_timesteps:
+            # decoder can attend over grapheme+speechreps timesteps
             encoder_padding_mask = graphemes_and_speechreps_padding_mask
         else:
+            # pads out the speechreps sequence so that
+            # the transformer decoder cannot attend over those output timesteps, and instead can only attend
+            # over timesteps that correspond to the input graphemes
             grapheme_segment_idx = 1 # pad idx is 0, speechreps idx is 2
             graphemes_padding_mask = src_segments.ne(grapheme_segment_idx) # pad everything BUT the graphemes (1 indicate to pad a position)
             encoder_padding_mask = graphemes_padding_mask
 
+        # print("encoder_padding_mask[1]", encoder_padding_mask[1])
+        # print("encoder_padding_mask[1].size()", encoder_padding_mask[1].size())
+        # print("encoder_padding_mask[1].sum(dim=0)", encoder_padding_mask[1].sum(dim=0))
+
         return {
             "encoder_out": [x],  # T x B x C
+
+            # in TransformerDecoderLayerBase.forward()
+            # masks out what timesteps decoder can attend to from encoder outs
+            #       encoder_padding_mask(ByteTensor, optional): binary
+            #       ByteTensor of shape `(batch, src_len)` where padding
+            #       elements are indicated by ``1``.
             "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any() else [],  # B x T
             "encoder_embedding": [],  # B x T x C
             "encoder_states": [],  # List[T x B x C]
@@ -404,21 +460,21 @@ class SACTransformerModel(FairseqEncoderDecoderModel):
         decoder = TTSTransformerDecoder(args, task.src_dict)
         return cls(encoder, decoder)
 
-    def forward(self, src_tokens, src_word_pos, src_segments, src_lengths, prev_output_tokens, **kwargs):
+    def forward(self, src_tokens, src_token_pos, src_word_pos, src_segments, src_lengths, prev_output_tokens, **kwargs):
         """
         SAC (Speech Audio Corrector):
             override forward in FairseqEncoderDecoderModel in order to provide additional inputs for SAC
             i.e. src_word_pos, src_segments
         """
-        encoder_out = self.encoder(src_tokens, src_word_pos=src_word_pos,
+        encoder_out = self.encoder(src_tokens, src_token_pos=src_token_pos, src_word_pos=src_word_pos,
                                    src_segments=src_segments, src_lengths=src_lengths, **kwargs)
         decoder_out = self.decoder(
             prev_output_tokens, encoder_out=encoder_out, **kwargs
         )
         return decoder_out
 
-    def forward_encoder(self, src_tokens, src_word_pos, src_segments, src_lengths, speaker=None, **kwargs):
-        return self.encoder(src_tokens, src_word_pos=src_word_pos,
+    def forward_encoder(self, src_tokens, src_token_pos, src_word_pos, src_segments, src_lengths, speaker=None, **kwargs):
+        return self.encoder(src_tokens, src_token_pos=src_token_pos, src_word_pos=src_word_pos,
                             src_segments=src_segments, src_lengths=src_lengths, speaker=speaker, **kwargs)
 
     def set_num_updates(self, num_updates):

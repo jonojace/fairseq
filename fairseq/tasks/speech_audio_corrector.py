@@ -46,10 +46,15 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
     @classmethod
     def add_args(cls, parser):
         super(SpeechAudioCorrectorTask, cls).add_args(parser)
-        parser.add_argument("--randomise-examples", action="store_true",)
+        parser.add_argument("--randomise-examples", action="store_true")
+        parser.add_argument("--one-mask-tok-per-grapheme", action="store_true",
+                            help="By default model replaces all of the graphemes for a word with just one mask token. Use this flag to replace with as many mask tokens as there are graphemes.")
         parser.add_argument("--use-ext-word2speechreps-p", type=float, default=0.0,
                             help="The probability with which to use speech codes from external corpus (VCTK) during training or inference.")
-        # parser.add_argument("--incl-external-speechreps", action="store_true",)
+        parser.add_argument("--new-logmelspec-dir", type=str, default=None,
+                            help="User can provide a path to specify the dir where audio data is (feature_manifest folder). Useful for when audio data has been moved to faster scratch disk.")
+        parser.add_argument("--recreate-word2speechreps", action="store_true",
+                        help="Force recreation of word2speechreps dict even if there exists a pickle on disk to load from. New recreated dict will be saved to disk.")
 
     def __init__(self, args, src_dict):
         super().__init__(args, src_dict)

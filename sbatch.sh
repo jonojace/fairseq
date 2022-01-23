@@ -12,13 +12,13 @@
 # How to call this script
 # =====================
 # call this script as:
-#    ./sbatch.sh 2 python train_apc.py --experiment_name test --batch_size 32
-#    ./sbatch.sh 2 python train_tacotron.py --hp_file hparams.py
-#    ./sbatch.sh 2 python gen_tacotron.py --hp_file hparams.py
+#    ../sbatch.sh 2 python train_apc.py --experiment_name test --batch_size 32
+#    ../sbatch.sh 2 python train_tacotron.py --hp_file hparams.py
+#    ../sbatch.sh 2 python gen_tacotron.py --hp_file hparams.py
 # Where 2 is the number of gpus to request
 
 # note you can specify a gpu, this will ensure that the job is only submitted to nodes with that GPU
-#    ./sbatch.sh 4 2080 python train_tacotron.py --hp_file hparams.py
+#    ../sbatch.sh 4 2080 python train_tacotron.py --hp_file hparams.py
 #    will request 4 2080s
 
 
@@ -32,7 +32,7 @@
 # Global vars
 # =====================
 
-LOG_DIR="./slurm_logs"
+LOG_DIR="./logs_slurm"
 
 # =====================
 # check if specific gpu was supplied
@@ -108,10 +108,10 @@ mail_user=s1785140@sms.ed.ac.uk
  mail_type=BEGIN,END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT # same as ALL
 #mail_type=END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT
 # Exclude particular nodes (used when nodes scratch disk is full)
-exclude_list=""
+#exclude_list=""
 #exclude_list=arnold
 #exclude_list=duflo
-#exclude_list=arnold,duflo
+exclude_list=arnold,duflo
 
 # =====================
 # create the sbatch file
@@ -123,7 +123,7 @@ echo "" >> temp_slurm_job.sh
 #job params
 echo "#SBATCH --nodes=${nodes}" >> temp_slurm_job.sh
 echo "#SBATCH --gres=gpu:${gpus}" >> temp_slurm_job.sh
-#echo "#SBATCH --cpus-per-task=${cpus}" >> temp_slurm_job.sh
+echo "#SBATCH --cpus-per-task=${cpus}" >> temp_slurm_job.sh
 #echo "#SBATCH --mem=${mem}" >> temp_slurm_job.sh  # warning this requests unreserved mem, if not found you will
 # not be able to get a node. if you don't use this flag, you will get a default setting for mem
 # and your jobs will get killed if they exceed it.
@@ -135,9 +135,9 @@ echo "#SBATCH --mail-type=${mail_type}" >> temp_slurm_job.sh
 echo "#SBATCH --output=${LOG_DIR}/%j" >> temp_slurm_job.sh #Note! remember to make this directory if it doesn't exist
 if [ -z "$exclude_list" ]
 then
-      echo "\$exclude_list is empty"
+      echo "exclude_list is empty"
 else
-      echo "\$exclude_list is NOT empty"
+      echo "exclude_list is NOT empty, excluding nodes:${exclude_list}"
       echo "#SBATCH --exclude=${exclude_list}" >> temp_slurm_job.sh
 fi
 echo "" >> temp_slurm_job.sh
@@ -148,17 +148,19 @@ echo "cmd_to_run_on_cluster=\"${cmd_to_run_on_cluster}\"" >> temp_slurm_job.sh
 echo "" >> temp_slurm_job.sh
 
 echo "#### handle copying of data and feature manifest manipulation based on what scratch disk is available ####" >> temp_slurm_job.sh
-echo "if [ ! -w "/disk/scratch_fast" ]; then" >> temp_slurm_job.sh
-    # scratch_fast doesnt have write permissions or is not found, changing feature_manifest to feature_manifest_standardscratch;
+    # if scratch_fast doesnt have write permissions or is not found, changing feature_manifest to feature_manifest_standardscratch;
     # dynamically change back to scratch if scratch_fast doesn't exist or doesn't have write permissions
     # i.e. in the training command, replace feature_manifest with feature_manifest_standardscratch
-    echo 'cmd_to_run_on_cluster="${cmd_to_run_on_cluster/feature_manifest/feature_manifest_standardscratch}"' >> temp_slurm_job.sh
-    echo "mkdir -p /disk/scratch/s1785140" >> temp_slurm_job.sh
-    echo "rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/scratch/s1785140" >> temp_slurm_job.sh
-    echo "else" >> temp_slurm_job.sh
-    echo "mkdir -p /disk/scratch_fast/s1785140" >> temp_slurm_job.sh
-    echo "rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/scratch_fast/s1785140" >> temp_slurm_job.sh
-echo "fi" >> temp_slurm_job.sh
+echo 'scratch_disk=$(bash examples/speech_audio_corrector/bash_scripts/check_scratchdisks.sh)' >> temp_slurm_job.sh
+echo 'cmd_to_run_on_cluster="${cmd_to_run_on_cluster/--new-logmelspec-dir None/--new-logmelspec-dir $scratch_disk}"' >> temp_slurm_job.sh
+#echo "if [ ! -w "/disk/scratch_fast" ]; then" >> temp_slurm_job.sh
+#    echo 'cmd_to_run_on_cluster="${cmd_to_run_on_cluster/feature_manifest/feature_manifest_standardscratch}"' >> temp_slurm_job.sh
+#    echo "mkdir -p /disk/scratch/s1785140" >> temp_slurm_job.sh
+#    echo "rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/scratch/s1785140" >> temp_slurm_job.sh
+#    echo "else" >> temp_slurm_job.sh
+#    echo "mkdir -p /disk/scratch_fast/s1785140" >> temp_slurm_job.sh
+#    echo "rsync -avu /home/s1785140/data/LJSpeech-1.1/feature_manifest/logmelspec80.zip /disk/scratch_fast/s1785140" >> temp_slurm_job.sh
+#echo "fi" >> temp_slurm_job.sh
 
 #rsyncing of data to scratch disk (need to do in job script since scratch data is isolated within job script)
 #echo "SCRATCH_DISK=scratch_fast" >> temp_slurm_job.sh
@@ -187,6 +189,7 @@ echo "fi" >> temp_slurm_job.sh
 #echo "srun ${cmd_to_run_on_cluster} \${data_path_flag}" >> temp_slurm_job.sh
 echo "" >> temp_slurm_job.sh
 echo "#### the command that will be run ####" >> temp_slurm_job.sh
+echo 'echo Running the following command on slurm: ${cmd_to_run_on_cluster}' >> temp_slurm_job.sh
 echo 'srun ${cmd_to_run_on_cluster}' >> temp_slurm_job.sh
 
 ##post experiment logging
