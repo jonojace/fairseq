@@ -46,7 +46,10 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
     @classmethod
     def add_args(cls, parser):
         super(SpeechAudioCorrectorTask, cls).add_args(parser)
-        parser.add_argument("--randomise-examples", action="store_true")
+        parser.add_argument("--randomise-examples", action="store_true",
+                            help="whether or not retrieve speech reps for a wordtype from a random example, or the example matching the utterance.")
+        parser.add_argument("--randomise-examples-p", type=float, default=1.0,
+                            help="The probability with which to use random speech codes rather than those from the utterance. 0.0 is equivalent to randomise_examples==False, 0.5 means that 50% of the time speech reps from the matching utterance are used and 50% of the time random speech reps are used.")
         parser.add_argument("--one-mask-tok-per-grapheme", action="store_true",
                             help="By default model replaces all of the graphemes for a word with just one mask token. Use this flag to replace with as many mask tokens as there are graphemes.")
         parser.add_argument("--use-ext-word2speechreps-p", type=float, default=0.0,

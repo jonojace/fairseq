@@ -605,20 +605,20 @@ RUN_ID=run2
 #  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
 #  --new-logmelspec-dir None \
 #  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
-#
-##############################
-## 120000 tokens per batch
-#MAX_TOKENS=30000
-#
-#NUM_GPUS=2
-#UPDATE_FREQ=2
-#
-##NUM_GPUS=3
-##UPDATE_FREQ=1
-#
-##NUM_GPUS=4
-##UPDATE_FREQ=1
-#
+
+#############################
+# 120000 tokens per batch
+MAX_TOKENS=30000
+
+NUM_GPUS=2
+UPDATE_FREQ=2
+
+#NUM_GPUS=3
+#UPDATE_FREQ=1
+
+#NUM_GPUS=4
+#UPDATE_FREQ=1
+
 #MODEL_NAME=${RUN_ID}_SAC_baseline_halved_updatefreq
 #./sbatch.sh $NUM_GPUS $GPU_TYPE fairseq-train ${FEATURE_MANIFEST_ROOT} \
 #  --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
@@ -644,7 +644,7 @@ RUN_ID=run2
 #  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
 #  --encoder-normalize-before --decoder-normalize-before \
 #  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
-#  --randomise-examples \
+#  --randomise-examples --randomise-examples-p 1.0 \
 #  --new-logmelspec-dir None \
 #  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
 #
@@ -659,7 +659,8 @@ RUN_ID=run2
 #  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
 #  --encoder-normalize-before --decoder-normalize-before \
 #  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
-#  --randomise-examples --use-ext-word2speechreps-p 0.5 \
+#  --randomise-examples --randomise-examples-p 1.0 \
+#  --use-ext-word2speechreps-p 0.5 \
 #  --new-logmelspec-dir None \
 #  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
 #
@@ -677,28 +678,38 @@ RUN_ID=run2
 #  --use-ext-word2speechreps-p 0.5 \
 #  --new-logmelspec-dir None \
 #  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
-
-MAX_TOKENS=20000
-NUM_GPUS=2
-UPDATE_FREQ=2
-
-MODEL_NAME=${RUN_ID}_SAC_one_mask_token_per_grapheme_maxtokens${MAX_TOKENS}_halved_updatefreq
-./sbatch.sh $NUM_GPUS $GPU_TYPE fairseq-train ${FEATURE_MANIFEST_ROOT} \
-  --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
-  --config-yaml config.yaml --train-subset train --valid-subset dev \
-  --num-workers $NUM_WORKERS --max-tokens $MAX_TOKENS --max-update 200000 \
-  --save-interval $SAVE_INTERVAL_EPOCHS --validate-interval $VAL_INTERVAL_EPOCHS \
-  --task speech_audio_corrector --criterion sac_tts --arch sac_transformer \
-  --clip-norm $CLIP_NORM --n-frames-per-step 4 --bce-pos-weight 5.0 \
-  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
-  --encoder-normalize-before --decoder-normalize-before \
-  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
-  --new-logmelspec-dir None \
-  --one-mask-tok-per-grapheme \
-  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
+#
+#MODEL_NAME=${RUN_ID}_SAC_random0.5_halved_updatefreq
+#./sbatch.sh $NUM_GPUS $GPU_TYPE fairseq-train ${FEATURE_MANIFEST_ROOT} \
+#  --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
+#  --config-yaml config.yaml --train-subset train --valid-subset dev \
+#  --num-workers $NUM_WORKERS --max-tokens $MAX_TOKENS --max-update 200000 \
+#  --save-interval $SAVE_INTERVAL_EPOCHS --validate-interval $VAL_INTERVAL_EPOCHS \
+#  --task speech_audio_corrector --criterion sac_tts --arch sac_transformer \
+#  --clip-norm $CLIP_NORM --n-frames-per-step 4 --bce-pos-weight 5.0 \
+#  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
+#  --encoder-normalize-before --decoder-normalize-before \
+#  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
+#  --randomise-examples --randomise-examples-p 0.5 \
+#  --new-logmelspec-dir None \
+#  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
+#
+#MODEL_NAME=${RUN_ID}_SAC_random0.5_with_ext_speechreps_halved_updatefreq
+#./sbatch.sh $NUM_GPUS $GPU_TYPE fairseq-train ${FEATURE_MANIFEST_ROOT} \
+#  --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
+#  --config-yaml config.yaml --train-subset train --valid-subset dev \
+#  --num-workers $NUM_WORKERS --max-tokens $MAX_TOKENS --max-update 200000 \
+#  --save-interval $SAVE_INTERVAL_EPOCHS --validate-interval $VAL_INTERVAL_EPOCHS \
+#  --task speech_audio_corrector --criterion sac_tts --arch sac_transformer \
+#  --clip-norm $CLIP_NORM --n-frames-per-step 4 --bce-pos-weight 5.0 \
+#  --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
+#  --encoder-normalize-before --decoder-normalize-before \
+#  --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
+#  --randomise-examples --randomise-examples-p 0.5 --use-ext-word2speechreps-p 0.5 \
+#  --new-logmelspec-dir None \
+#  --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
 
 MAX_TOKENS=25000
-
 MODEL_NAME=${RUN_ID}_SAC_one_mask_token_per_grapheme_maxtokens${MAX_TOKENS}_halved_updatefreq
 ./sbatch.sh $NUM_GPUS $GPU_TYPE fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
@@ -713,3 +724,4 @@ MODEL_NAME=${RUN_ID}_SAC_one_mask_token_per_grapheme_maxtokens${MAX_TOKENS}_halv
   --new-logmelspec-dir None \
   --one-mask-tok-per-grapheme \
   --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
+

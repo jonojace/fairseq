@@ -204,7 +204,8 @@ def dropout_timesteps(seq, p):
         return seq
 
 
-def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps, randomise,
+def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps,
+                            randomise_examples, randomise_examples_p,
                             remove_dup_prob, remove_dup_rand_num, dropout_p):
     """return the speechreps for a wordtype
     optionally remove duplicates"""
@@ -216,7 +217,12 @@ def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps, ra
         unique_id = None # just get speechreps for word, pulling from a random utterance
 
     # get speechreps for word
-    get_specific_word_example = (not randomise and unique_id and unique_id in word2speechreps[wordtype])
+    get_specific_word_example = (
+            not randomise_examples
+            and random.random() < 1.0 - randomise_examples_p
+            and unique_id
+            and unique_id in word2speechreps[wordtype]
+    )
 
     if get_specific_word_example:
         # particular word example
@@ -255,7 +261,7 @@ def get_speechreps_for_utt(word_and_word_pos, utt_id, word2speechreps,
         word_counter[word] += 1
         word_speechreps = get_speechreps_for_word(wordtype=word, utt_id=utt_id, count_of_word=word_counter[word],
                                                   word2speechreps=word2speechreps,
-                                                  randomise=randomise_examples,
+                                                  randomise_examples=randomise_examples,
                                                   remove_dup_prob=remove_dup_prob,
                                                   remove_dup_rand_num=remove_dup_rand_num,
                                                   dropout_p=dropout_p)
@@ -466,6 +472,7 @@ def get_speechreps_inputs(tokens, word2speechreps,
                           use_ext_word2speechreps_p=0.0,  # with what probability should we use speech reps from external corpus
                           utt_id=None,  #optionally provide this so that correct example can be retrieved rather than a random example
                           randomise_examples=False,
+                          randomise_examples_p=1.0,
                           bpe_whitespace_tok="▁",
                           remove_dup_prob=1.0,
                           remove_dup_rand_num=False,
@@ -537,8 +544,10 @@ def get_speechreps_inputs(tokens, word2speechreps,
                 #retrieve speech reps
                 word_speechreps = get_speechreps_for_word(
                     token["word"], utt_id=utt_id, count_of_word=word_counter[token["word"]],
-                    word2speechreps=w2sr, randomise=randomise_examples,
-                    remove_dup_prob=remove_dup_prob, remove_dup_rand_num=remove_dup_rand_num, dropout_p=dropout_p,
+                    word2speechreps=w2sr, randomise_examples=randomise_examples,
+                    randomise_examples_p=randomise_examples_p,
+                    remove_dup_prob=remove_dup_prob, remove_dup_rand_num=remove_dup_rand_num,
+                    dropout_p=dropout_p,
                 )
 
                 speechreps.extend(word_speechreps)

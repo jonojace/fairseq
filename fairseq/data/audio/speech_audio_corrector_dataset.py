@@ -122,6 +122,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ################################################################################################################
         # add SAC specific CLAs from arg parser to cfg
         self.randomise_examples = args.randomise_examples
+        self.randomise_examples_p = args.randomise_examples_p
         self.use_ext_word2speechreps_p = args.use_ext_word2speechreps_p
         self.one_mask_tok_per_grapheme = args.one_mask_tok_per_grapheme
 
@@ -212,6 +213,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             ext_word2speechreps=self.ext_word2speechreps,
             use_ext_word2speechreps_p=self.use_ext_word2speechreps_p,
             utt_id=utt_id, randomise_examples=self.randomise_examples,
+            randomise_examples_p=self.randomise_examples_p,
         )
         speechreps = prepend_speechreps_for_dict_encoding(speechreps)
 

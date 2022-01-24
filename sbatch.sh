@@ -105,7 +105,7 @@ time=7-00:00:00
 #mem=8G
 mem=16G
 mail_user=s1785140@sms.ed.ac.uk
- mail_type=BEGIN,END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT # same as ALL
+mail_type=BEGIN,END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT # same as ALL
 #mail_type=END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT
 # Exclude particular nodes (used when nodes scratch disk is full)
 #exclude_list=""
