@@ -469,10 +469,10 @@ def get_text_inputs(tokens, mask_token,
 
 def get_speechreps_inputs(tokens, word2speechreps,
                           ext_word2speechreps=None,
-                          use_ext_word2speechreps_p=0.0,  # with what probability should we use speech reps from external corpus
+                          use_ext_word2speechreps_p=None,  # with what probability should we use speech reps from external corpus
                           utt_id=None,  #optionally provide this so that correct example can be retrieved rather than a random example
                           randomise_examples=False,
-                          randomise_examples_p=1.0,
+                          randomise_examples_p=None,
                           bpe_whitespace_tok="▁",
                           remove_dup_prob=1.0,
                           remove_dup_rand_num=False,
@@ -529,16 +529,16 @@ def get_speechreps_inputs(tokens, word2speechreps,
             word_counter[token["word"]] += 1
             if token["mask"]: # masked word needs to be replaced by speech reps
                 # decide where to use either training or external speech reps
-                use_training_data_speechreps = (
+                use_main_word2speechreps = (
                         use_ext_word2speechreps_p == 0.0 # never use ext speechreps
                         or random.random() < 1.0 - use_ext_word2speechreps_p # randomly decide whether to use training speech reps
                         or token["word"] not in ext_word2speechreps # cannot use ext speech reps because wordtype not found in ext corpus
                 )
-                if use_training_data_speechreps:
-                    # print("debug using training data speechreps")
+                if use_main_word2speechreps:
+                    print("debug using training data speechreps!!!")
                     w2sr = word2speechreps
                 else:
-                    # print("debug using external data speechreps")
+                    # print("debug using external data speechreps!!!")
                     w2sr = ext_word2speechreps
 
                 #retrieve speech reps

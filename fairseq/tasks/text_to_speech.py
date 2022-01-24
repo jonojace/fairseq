@@ -168,7 +168,7 @@ class TextToSpeechTask(SpeechToTextTask):
                 assert(k not in logging_output)
                 logging_output[k] = v
 
-            picked_id = 0
+            picked_id = 0 # the ID to listen to in tensorboard?
             if self.tensorboard_dir and (sample["id"] == picked_id).any():
                 self.log_tensorboard(
                     sample,

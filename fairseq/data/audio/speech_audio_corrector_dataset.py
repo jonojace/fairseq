@@ -200,13 +200,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ################################################################################################################
         # Process tokens into speech codes and word positions for each speech code
 
-        # if use_external_speechreps:
-        #     print("!!!DEBUGGG using self.ext_word2speechreps!!!")
-        #     w2sr = self.ext_word2speechreps
-        #     # TODO add option to combine the two dictionaries together???
-        #     # do this in dataset creator when the two dictionaries are created
-        # else:
-        #     w2sr = self.word2speechreps
+        # print("INSIDE get_data_item_from_utt()", self.use_ext_word2speechreps_p)
 
         speechreps, word_pos_of_speechreps = get_speechreps_inputs(
             tokens, self.word2speechreps,
@@ -395,11 +389,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
         return return_dict
 
-    def batch_from_utts(self,
-                        all_utts,
-                        dataset,
-                        batch_size,
-                        use_external_speechreps):
+    def batch_from_utts(self, all_utts, batch_size):
         """
         generate a batch of SAC model inputs from a list of plain text inputs
 
@@ -524,12 +514,30 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
         # (potentially for more robust multi-speaker corrections)
         ext_speechrep_file = "/home/s1785140/fairseq/examples/speech_audio_corrector/vctk_quantized.txt"
         ext_alignments_dir = "/home/s1785140/data/vctk_montreal_alignments_from_trimmed_wavs_no_nested_dirs"
-        dev_and_test_speakers = ['p343','p345','p347','p351','p360','p361','p362','p363','p364','p374','p376'] # last 11 speakers of VCTK, VCTK has 111 speakers in total so train should have 100 speakers
+        if split_name == "train":
+            ext_speechreps_speakers_to_incl = [
+                "p225",  "p233",  "p243",  "p251",  "p259",  "p267",  "p275",  "p283",  "p294",  "p303",  "p312",  "p329",  "p341",
+                "p226",  "p234",  "p244",  "p252",  "p260",  "p268",  "p276",  "p284",  "p295",  "p304",  "p313",  "p330",  "p343",
+                "p227",  "p236",  "p245",  "p253",  "p261",  "p269",  "p277",  "p285",  "p297",  "p305",  "p314",  "p333",  "p345",
+                "p228",  "p237",  "p246",  "p254",  "p262",  "p270",  "p278",  "p286",  "p298",  "p306",  "p316",  "p334",  "p347",
+                "p229",  "p238",  "p247",  "p255",  "p263",  "p271",  "p279",  "p287",  "p299",  "p307",  "p317",  "p335",
+                "p230",  "p239",  "p248",  "p256",  "p264",  "p272",  "p280",  "p288",  "p300",  "p308",  "p318",  "p336",
+                "p231",  "p240",  "p249",  "p257",  "p265",  "p273",  "p281",  "p292",  "p301",  "p310",  "p323",  "p339",
+                "p232",  "p241",  "p250",  "p258",  "p266",  "p274",  "p282",  "p293",  "p302",  "p311",  "p326",  "p340",
+            ] # first 100 speakers
+            assert len(ext_speechreps_speakers_to_incl) == 100
+        elif split_name == "dev":
+            ext_speechreps_speakers_to_incl = ['p343','p345','p347'] # next 3 speakers
+        elif split_name == "test":
+            ext_speechreps_speakers_to_incl = ['p351', 'p360', 'p361', 'p362', 'p363', 'p364', 'p374', 'p376'] # final 8 speakers
+        else:
+            raise ValueError
+
         ext_word2speechreps, _ = cls.get_word2speechreps(
             ext_speechrep_file, ext_alignments_dir, ids=None,
-            corpus="vctk", split="train",
+            corpus="vctk", split=split_name,
             force_creation=args.recreate_word2speechreps,
-            speakers_to_excl=dev_and_test_speakers,
+            ext_speechreps_speakers_to_incl=ext_speechreps_speakers_to_incl,
         )
 
         sac_dataset = SpeechAudioCorrectorDataset(
@@ -547,22 +555,23 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
         return sac_dataset
 
     @classmethod
-    def load_speechreps(cls, speechrep_file, speakers_to_excl=None, corpus=None):
+    def load_speechreps(cls, speechrep_file, ext_speechreps_speakers_to_incl=None, corpus=None):
         with open(speechrep_file, 'r') as f:
             lines = f.readlines()
         utt_id2speechreps = {}
-        excluded_speakers = set()
+        included_speakers = set()
         for l in lines:
             utt_id, codes = l.split('|')
 
-            # do not add codes from utterance if utterance is spoken by an "excluded speaker"
-            if speakers_to_excl:
+            # only add codes from utterance if utterance is spoken by an "included speaker"
+            if ext_speechreps_speakers_to_incl:
                 if corpus == "vctk":
-                    # we want to exclude some speakers from training so that we can use their speech reps in dev+test eval
+                    # we want to include some speakers from training so that we can use their speech reps in dev+test eval
                     spk_id = utt_id.split('_')[0]
-                    if spk_id in speakers_to_excl:
-                        excluded_speakers.add(spk_id) # keep track of excluded speakers for verification purposes
-                        continue # skip this utterance because it contains an excluded speaker
+                    if spk_id in ext_speechreps_speakers_to_incl:
+                        included_speakers.add(spk_id) # keep track of included speakers for verification purposes
+                    else:
+                        continue  # skip this utterance because it is not spoken by an included speaker
                 elif corpus == "ljspeech":
                     raise NotImplementedError
                 else:
@@ -572,11 +581,9 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
             codes = [int(s) for s in codes.split(' ')]  # convert from str of ints to list of ints
             utt_id2speechreps[utt_id] = codes
 
-        print(f"load_speechreps - corpus {corpus} excluded speakers:", excluded_speakers)
-        if speakers_to_excl is None:
-            assert set() == excluded_speakers
-        else:
-            assert set(speakers_to_excl) == excluded_speakers, f"set(speakers_to_excl) {set(speakers_to_excl)} excluded_speakers {excluded_speakers}"
+        print(f"load_speechreps - corpus {corpus} included speakers:", included_speakers)
+        if ext_speechreps_speakers_to_incl:
+            assert set(ext_speechreps_speakers_to_incl) == included_speakers, f"set(ext_speechreps_speakers_to_incl) {set(ext_speechreps_speakers_to_incl)} included_speakers {included_speakers}"
 
         return utt_id2speechreps
 
@@ -592,7 +599,7 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
         return utt_id2word_alignments
 
     @classmethod
-    def get_word2speechreps(cls, speechrep_file, alignments_dir, ids, corpus, split, speakers_to_excl=None, force_creation=False):
+    def get_word2speechreps(cls, speechrep_file, alignments_dir, ids, corpus, split, ext_speechreps_speakers_to_incl=None, force_creation=False):
         """
         fast way to force recreation of data structures is by deleting them from disk @ cls.word2speechreps_dir
         """
@@ -616,7 +623,7 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
             else:
                 print(f"word2speechreps for {corpus} {split} not found. Creating...")
             # load quantised speech reps file
-            ids2speechreps = cls.load_speechreps(speechrep_file, speakers_to_excl=speakers_to_excl, corpus=corpus)
+            ids2speechreps = cls.load_speechreps(speechrep_file, ext_speechreps_speakers_to_incl=ext_speechreps_speakers_to_incl, corpus=corpus)
 
             if ids is None:
                 # if ids is None then create word2speech reps for the words in all the corpus

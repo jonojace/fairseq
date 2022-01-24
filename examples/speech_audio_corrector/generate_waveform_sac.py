@@ -43,7 +43,7 @@ def make_parser():
         "--txt-file", type=str, default="",
         help="path to txt file of utterances to generate."
     )
-    parser.add_argument("--speechreps-add-mask-tokens", action="store_true")
+    # parser.add_argument("--speechreps-add-mask-tokens", action="store_true")
     parser.add_argument("--add-count-to-filename", action="store_true")
     parser.add_argument("--use-external-speechreps", action="store_true",
                         help="Use this flag if you want to use speechreps from the external dataset to do inference.")
@@ -215,26 +215,36 @@ def filter_utts_whose_words_do_not_have_speechreps(
 ):
     missing_words = set()
     new_utts = []
+    w2sr = dataset.ext_word2speechreps if use_external_speechreps else dataset.word2speechreps
 
-    # print("DEBUG", list(dataset.word2speechreps.keys()))
+    def token2word(token):
+        if token.startswith("<") and token.endswith(">"):
+            word = token.lstrip("<").rstrip(">")
+        else:
+            word = token
+        return word
 
     for utt in utts:
         for token in utt.split(" "):
-            if token.startswith("<") and token.endswith(">"):
-                word = token.lstrip("<").rstrip(">")
-            else:
-                word = token
-
-            w2sr = dataset.ext_word2speechreps if use_external_speechreps else dataset.word2speechreps
+            word = token2word(token)
 
             if word not in w2sr and word not in ignore_list:
                 missing_words.add(word)
                 break
         else:
+            # all words in utt are in w2sr
             new_utts.append(utt)
 
+    all_words = set()
+    for utt in utts:
+        for token in utt.split(" "):
+            word = token2word(token)
+            if word not in ignore_list:
+                all_words.add(word)
+
+
     if len(missing_words) > 0:
-        print(f"\nWARNING {len(missing_words)} (out of {len(utts)}) utts left out from inference. Words not in dataset.word2speechreps are:", missing_words)
+        print(f"\nWARNING {len(missing_words)} words out of {len(all_words)} words left out from inference. Words not in dataset.{'ext_word2speechreps' if use_external_speechreps else 'word2speechreps'} are:", sorted(list(missing_words)))
 
     # print(f"DEBUG", len(utts), len(new_utts))
 
@@ -290,8 +300,7 @@ def main(args):
         with open(args.txt_file, 'r') as f:
             test_utts = [l.rstrip("\n") for l in f.readlines() if l != "\n" and not l.startswith("#")]
 
-        print("test_utts", test_utts)
-        print("args.use_external_speechreps", args.use_external_speechreps)
+        # print("test_utts", test_utts)
 
         test_utts = filter_utts_whose_words_do_not_have_speechreps(
             test_utts,
@@ -299,13 +308,13 @@ def main(args):
             use_external_speechreps=args.use_external_speechreps,
             ignore_list=["how", "is", "pronounced"]
         )
+
+        print(f"Post filtered num of test utts is {len(test_utts)}")
             
         # create mini-batches with given size constraints
         itr = dataset.batch_from_utts(
             test_utts,
-            dataset,
             batch_size=args.batch_size,
-            use_external_speechreps=args.use_external_speechreps
         )
 
     else:
@@ -324,8 +333,8 @@ def main(args):
         ).next_epoch_itr(shuffle=False)
 
     # output to different directory if using external speechreps
-    if args.use_external_speechreps:
-        args.results_path = os.path.join(args.results_path, 'ext_speechreps')
+    # if args.use_external_speechreps:
+    #     args.results_path = os.path.join(args.results_path, 'ext_speechreps')
 
     Path(args.results_path).mkdir(exist_ok=True, parents=True)
 

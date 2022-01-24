@@ -124,6 +124,7 @@ EXCLUDE=
 #EXCLUDE=duflo,arnold
 srun --part=ILCC_GPU,CDT_GPU --gres=gpu:$NUM_GPUS --cpus-per-task=$CPUS_PER_TASK --mem=$MEM --exclude=$EXCLUDE --pty bash
 
+./interactive_node_1gpu.sh
 source ~/activate_fairseq.sh
 
 cd ~/fairseq
@@ -133,12 +134,12 @@ MAX_TOKENS=30000 #30000 # 30000 is default for transformer TTS
 CLIP_NORM=0.01 # clip gradients during training to given value (default value is 5.0)
 SAVE_INTERVAL_EPOCHS=1
 VAL_INTERVAL_EPOCHS=1
-
 FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
+
 scratch_disk=$(bash examples/speech_audio_corrector/bash_scripts/check_scratchdisks.sh)
 echo "scratch_disk is $scratch_disk"
 
-MODEL_NAME=test_train_with_ext_speechreps
+MODEL_NAME=test_SAC_inference_during_training
 fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
   --config-yaml config.yaml --train-subset train --valid-subset dev \
@@ -149,6 +150,8 @@ fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
   --encoder-normalize-before --decoder-normalize-before \
   --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
-  --randomise-examples --use-ext-word2speechreps-p 0.5 \
+  --randomise-examples --randomise-examples-p 0.5 \
+  --use-ext-word2speechreps-p 0.5 \
   --new-logmelspec-dir ${scratch_disk} \
+  --eval-inference \
   --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
