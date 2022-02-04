@@ -134,14 +134,12 @@ srun --part=ILCC_GPU,CDT_GPU --gres=gpu:$NUM_GPUS --cpus-per-task=$CPUS_PER_TASK
 
 cd ~
 source activate_fairseq.sh
-NUM_GPUS=4
 NUM_WORKERS=2
 UPDATE_FREQ=3
 MAX_TOKENS=20000 # 30000 is default for transformer TTS
-MAX_SENTENCES=NULL # TODO use this to help control mem usage?
 FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
 
-MODEL_NAME=test_tts_maxtokens${MAX_TOKENS}_updatefreq${UPDATE_FREQ}_gpus${NUM_GPUS}
+MODEL_NAME=test_vanilla_tts_transformer
 FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
 fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --save-dir checkpoints/$MODEL_NAME --tensorboard-logdir tb_logs/$MODEL_NAME \
@@ -258,7 +256,7 @@ fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --encoder-normalize-before --decoder-normalize-before \
   --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
   --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss \
-  --randomise-examples
+  --randomise-examples-p 1.0
 ```
 
 # Generate waveform
@@ -272,19 +270,20 @@ Example follows https://github.com/pytorch/fairseq/blob/main/examples/speech_syn
 ```bash
 cd ~/fairseq
 
-MODEL=test_tts_maxtokens20000_updatefreq3_gpus4
+MODEL=test_vanilla_tts_transformer
 SAVE_DIR=checkpoints/$MODEL
 SPLIT=test
 FEATURE_MANIFEST_ROOT=/home/s1785140/data/LJSpeech-1.1/feature_manifest
-CHECKPOINT_NAME=avg_last_5
+#CHECKPOINT_NAME=avg_last_5
+CHECKPOINT_NAME=last
 CHECKPOINT_PATH=${SAVE_DIR}/checkpoint_${CHECKPOINT_NAME}.pt
 OUT_DIR=inference/$MODEL/$CHECKPOINT_NAME
-python scripts/average_checkpoints.py --inputs ${SAVE_DIR} \
-  --num-epoch-checkpoints 5 \
-  --output ${CHECKPOINT_PATH}
+#python scripts/average_checkpoints.py --inputs ${SAVE_DIR} \
+#  --num-epoch-checkpoints 5 \
+#  --output ${CHECKPOINT_PATH}
 
 python -m examples.speech_synthesis.generate_waveform ${FEATURE_MANIFEST_ROOT} \
-  --config-yaml config.yaml --gen-subset ${SPLIT} --task speech_audio_corrector \
+  --config-yaml config.yaml --gen-subset ${SPLIT} --task text_to_speech \
   --path ${CHECKPOINT_PATH} --max-tokens 50000 --spec-bwd-max-iter 32 \
   --results-path $OUT_DIR \
   --dump-waveforms
