@@ -185,7 +185,7 @@ def collapse_dups(speechreps, remove_dup_prob, remove_dup_rand_num):
         if remove_dup_rand_num:
             compressed_rle = remove_dups_random(rle)
         else:
-            # remove all duplicates for each code (i.e. set count to 0)
+            # remove all duplicates for each code (i.e. set count to 1 for each code)
             compressed_rle = [(char, 1) for char, count in rle]
         speechreps = expand_rle(compressed_rle)
     return speechreps
@@ -205,7 +205,7 @@ def dropout_timesteps(seq, p):
 
 
 def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps,
-                            randomise_examples, randomise_examples_p,
+                            randomise_examples_p,
                             remove_dup_prob, remove_dup_rand_num, dropout_p):
     """return the speechreps for a wordtype
     optionally remove duplicates"""
@@ -218,10 +218,8 @@ def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps,
 
     # get speechreps for word
     get_specific_word_example = (
-            not randomise_examples
-            and random.random() < 1.0 - randomise_examples_p
-            and unique_id
-            and unique_id in word2speechreps[wordtype]
+            random.random() < 1.0 - randomise_examples_p
+            and unique_id and unique_id in word2speechreps[wordtype]
     )
 
     if get_specific_word_example:
@@ -407,8 +405,11 @@ def get_tokens(
 
 def get_text_inputs(tokens, mask_token,
                     bpe_whitespace_tok="▁",
-                    one_mask_tok_per_grapheme=False,
-                    eos_symbol="</s>"):
+                    mask_tok_per_word="one", # "zero", "one", "many"
+                    eos_symbol="</s>",
+                    sos_symbol="<s>",
+                    replace_eos_with_sos=False # end grapheme seq with sos and end speech reps seq with eos to try and reduce attention errors
+                    ):
     """
     tokens:
     [
@@ -449,16 +450,22 @@ def get_text_inputs(tokens, mask_token,
 
     for token in tokens:
         if token["word"] in [bpe_whitespace_tok, eos_symbol]:
-            graphemes.append(token["word"])
+            if token["word"] == eos_symbol and replace_eos_with_sos:
+                graphemes.append(sos_symbol)
+            else:
+                graphemes.append(token["word"])
             word_pos_of_graphemes.append(token["word_pos"])
         else:
             if token["mask"]: # masked word
-                for c in token["word"]:
-                    graphemes.append(mask_token)
-                    word_pos_of_graphemes.append(token["word_pos"])
-                    if not one_mask_tok_per_grapheme:
-                        break
+                if mask_tok_per_word in ["one", "many"]:
+                    # add mask tokens for masked word
+                    for c in token["word"]:
+                        graphemes.append(mask_token)
+                        word_pos_of_graphemes.append(token["word_pos"])
+                        if mask_tok_per_word == "one":
+                            break
             else: # unmasked word
+                # add graphemes for unmasked word
                 for c in token["word"]:
                     graphemes.append(c)
                     word_pos_of_graphemes.append(token["word_pos"])
@@ -471,7 +478,6 @@ def get_speechreps_inputs(tokens, word2speechreps,
                           ext_word2speechreps=None,
                           use_ext_word2speechreps_p=None,  # with what probability should we use speech reps from external corpus
                           utt_id=None,  #optionally provide this so that correct example can be retrieved rather than a random example
-                          randomise_examples=False,
                           randomise_examples_p=None,
                           bpe_whitespace_tok="▁",
                           remove_dup_prob=1.0,
@@ -535,7 +541,7 @@ def get_speechreps_inputs(tokens, word2speechreps,
                         or token["word"] not in ext_word2speechreps # cannot use ext speech reps because wordtype not found in ext corpus
                 )
                 if use_main_word2speechreps:
-                    print("debug using training data speechreps!!!")
+                    # print("debug using training data speechreps!!!")
                     w2sr = word2speechreps
                 else:
                     # print("debug using external data speechreps!!!")
@@ -544,8 +550,7 @@ def get_speechreps_inputs(tokens, word2speechreps,
                 #retrieve speech reps
                 word_speechreps = get_speechreps_for_word(
                     token["word"], utt_id=utt_id, count_of_word=word_counter[token["word"]],
-                    word2speechreps=w2sr, randomise_examples=randomise_examples,
-                    randomise_examples_p=randomise_examples_p,
+                    word2speechreps=w2sr, randomise_examples_p=randomise_examples_p,
                     remove_dup_prob=remove_dup_prob, remove_dup_rand_num=remove_dup_rand_num,
                     dropout_p=dropout_p,
                 )

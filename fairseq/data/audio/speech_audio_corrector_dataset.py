@@ -121,10 +121,11 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
         ################################################################################################################
         # add SAC specific CLAs from arg parser to cfg
-        self.randomise_examples = args.randomise_examples
         self.randomise_examples_p = args.randomise_examples_p
         self.use_ext_word2speechreps_p = args.use_ext_word2speechreps_p
-        self.one_mask_tok_per_grapheme = args.one_mask_tok_per_grapheme
+        self.mask_tok_per_word = args.mask_tok_per_word
+        self.remove_dup_codes_p = args.remove_dup_codes_p
+        self.use_sos_symbol_in_middle = args.use_sos_symbol_in_middle
 
         ################################################################################################################
         # add SAC specific data structure to this dataset object
@@ -195,7 +196,8 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ################################################################################################################
         # Process tokens into graphemes and word positions for each grapheme
         graphemes, word_pos_of_graphemes = get_text_inputs(tokens, mask_token="<mask>",
-                                                           one_mask_tok_per_grapheme=self.one_mask_tok_per_grapheme)
+                                                           replace_eos_with_sos=self.use_sos_symbol_in_middle,
+                                                           mask_tok_per_word=self.mask_tok_per_word)
 
         ################################################################################################################
         # Process tokens into speech codes and word positions for each speech code
@@ -206,8 +208,8 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             tokens, self.word2speechreps,
             ext_word2speechreps=self.ext_word2speechreps,
             use_ext_word2speechreps_p=self.use_ext_word2speechreps_p,
-            utt_id=utt_id, randomise_examples=self.randomise_examples,
-            randomise_examples_p=self.randomise_examples_p,
+            utt_id=utt_id, randomise_examples_p=self.randomise_examples_p,
+            remove_dup_prob=self.remove_dup_codes_p,
         )
         speechreps = prepend_speechreps_for_dict_encoding(speechreps)
 
