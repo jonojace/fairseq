@@ -60,7 +60,7 @@ fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --encoder-normalize-before --decoder-normalize-before \
   --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
   --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss \
-  --randomise-examples
+  --randomise-examples-p 1.0
 
 # no word-level alignment information
 MODEL_NAME=test_no_word_pos_embeddings
@@ -150,7 +150,7 @@ fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --dropout 0.1 --attention-dropout 0.1 --activation-dropout 0.1 \
   --encoder-normalize-before --decoder-normalize-before \
   --optimizer adam --lr 2e-3 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
-  --randomise-examples --randomise-examples-p 0.5 \
+  --randomise-examples-p 0.5 \
   --use-ext-word2speechreps-p 0.5 \
   --new-logmelspec-dir ${scratch_disk} \
   --eval-inference \
