@@ -107,11 +107,16 @@ mem=16G
 mail_user=s1785140@sms.ed.ac.uk
 mail_type=BEGIN,END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT # same as ALL
 #mail_type=END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT
-# Exclude particular nodes (used when nodes scratch disk is full)
+
+# Exclude particular nodes
 #exclude_list=""
 #exclude_list=arnold
 #exclude_list=duflo
 exclude_list=arnold,duflo
+
+# Only include particular nodes
+#include_list=""
+#include_list=arnold
 
 # =====================
 # create the sbatch file
@@ -133,6 +138,8 @@ echo "#SBATCH --partition=${part}" >> temp_slurm_job.sh
 echo "#SBATCH --mail-user=${mail_user}" >> temp_slurm_job.sh
 echo "#SBATCH --mail-type=${mail_type}" >> temp_slurm_job.sh
 echo "#SBATCH --output=${LOG_DIR}/%j" >> temp_slurm_job.sh #Note! remember to make this directory if it doesn't exist
+
+# exclude list
 if [ -z "$exclude_list" ]
 then
       echo "exclude_list is empty"
@@ -140,6 +147,16 @@ else
       echo "exclude_list is NOT empty, excluding nodes:${exclude_list}"
       echo "#SBATCH --exclude=${exclude_list}" >> temp_slurm_job.sh
 fi
+
+# nodelist
+if [ -z "$include_list" ]
+then
+      echo "include_list is empty"
+else
+      echo "include_list is NOT empty, including nodes:${include_list}"
+      echo "#SBATCH --nodelist=${include_list}" >> temp_slurm_job.sh
+fi
+
 echo "" >> temp_slurm_job.sh
 
 echo "#### create the command to be run on the cluster ####" >> temp_slurm_job.sh
