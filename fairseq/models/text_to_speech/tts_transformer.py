@@ -181,6 +181,9 @@ class TTSTransformerDecoder(FairseqIncrementalDecoder):
             self_attn_padding_mask, incremental_state=incremental_state
         )
 
+        # print(f"inside tts_transformer.py extract feats() prev_outputs is size()", prev_outputs.size())
+        # print(f"inside tts_transformer.py extract feats() incremental_state is", incremental_state)
+
         if incremental_state is not None:
             prev_outputs = prev_outputs[:, -1:, :]
             self_attn_padding_mask = self_attn_padding_mask[:, -1:]

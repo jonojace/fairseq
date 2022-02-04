@@ -290,14 +290,13 @@ class TTSTransformerDecoder(FairseqIncrementalDecoder):
             target_lengths=None, speaker=None, **kwargs
     ):
         alignment_layer = self.n_transformer_layers - 1
-
-        #TODO modify mask so speechreps cannot be attended to by decoder
         self_attn_padding_mask = lengths_to_padding_mask(target_lengths)
-
-        #TODO need to add word positions at this point too?
         positions = self.embed_positions(
             self_attn_padding_mask, incremental_state=incremental_state
         )
+
+        # print(f"inside sac_transformer.py extract feats() prev_outputs is size()", prev_outputs.size())
+        # print(f"inside sac_transformer.py extract feats() incremental_state is", incremental_state)
 
         if incremental_state is not None:
             prev_outputs = prev_outputs[:, -1:, :]
@@ -318,12 +317,6 @@ class TTSTransformerDecoder(FairseqIncrementalDecoder):
         attn: Optional[torch.Tensor] = None
         inner_states: List[Optional[torch.Tensor]] = [x]
         for idx, transformer_layer in enumerate(self.transformer_layers):
-            # debug_val = (
-            #             encoder_out is not None
-            #             and len(encoder_out["encoder_padding_mask"]) > 0
-            #     )
-            # print("DEBUG encoder_padding_mask", debug_val, len(encoder_out["encoder_padding_mask"]), encoder_out["encoder_padding_mask"][0].size())
-
             if incremental_state is None:
                 self_attn_mask = self.buffered_future_mask(x)
             else:
