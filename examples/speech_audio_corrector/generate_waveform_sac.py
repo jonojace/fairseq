@@ -295,6 +295,15 @@ def main(args):
 
     dataset = task.dataset(args.gen_subset)
 
+    print("*** Dataset inference time attributes:")
+    print("*** dataset.randomise_examples_p:", dataset.randomise_examples_p)
+    print("*** dataset.use_ext_word2speechreps_p:", dataset.use_ext_word2speechreps_p)
+    print("*** dataset.mask_tok_per_word:", dataset.mask_tok_per_word)
+    print("*** dataset.remove_dup_codes_p:", dataset.remove_dup_codes_p)
+    print("*** dataset.symbol_in_middle:", dataset.symbol_in_middle)
+
+    exit
+
     if args.txt_file:
         # generate test sentences in txt file (WARNING: do not have underlying ground truth audio for obj eval!)
         with open(args.txt_file, 'r') as f:

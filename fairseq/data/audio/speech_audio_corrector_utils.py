@@ -408,7 +408,7 @@ def get_text_inputs(tokens, mask_token,
                     mask_tok_per_word="one", # "zero", "one", "many"
                     eos_symbol="</s>",
                     sos_symbol="<s>",
-                    replace_eos_with_sos=False # end grapheme seq with sos and end speech reps seq with eos to try and reduce attention errors
+                    replace_eos_with_sos=True # end grapheme seq with sos and end speech reps seq with eos to try and reduce attention errors
                     ):
     """
     tokens:

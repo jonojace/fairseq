@@ -125,7 +125,14 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         self.use_ext_word2speechreps_p = args.use_ext_word2speechreps_p
         self.mask_tok_per_word = args.mask_tok_per_word
         self.remove_dup_codes_p = args.remove_dup_codes_p
-        self.use_sos_symbol_in_middle = args.use_sos_symbol_in_middle
+        self.symbol_in_middle = args.symbol_in_middle
+
+        print("*** Important dataset training time attributes:")
+        print("*** self.randomise_examples_p:", self.randomise_examples_p)
+        print("*** self.use_ext_word2speechreps_p:", self.use_ext_word2speechreps_p)
+        print("*** self.mask_tok_per_word:", self.mask_tok_per_word)
+        print("*** self.remove_dup_codes_p:", self.remove_dup_codes_p)
+        print("*** self.symbol_in_middle:", self.symbol_in_middle)
 
         ################################################################################################################
         # add SAC specific data structure to this dataset object
@@ -196,7 +203,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         ################################################################################################################
         # Process tokens into graphemes and word positions for each grapheme
         graphemes, word_pos_of_graphemes = get_text_inputs(tokens, mask_token="<mask>",
-                                                           replace_eos_with_sos=self.use_sos_symbol_in_middle,
+                                                           replace_eos_with_sos=(self.symbol_in_middle == "sos"),
                                                            mask_tok_per_word=self.mask_tok_per_word)
 
         ################################################################################################################

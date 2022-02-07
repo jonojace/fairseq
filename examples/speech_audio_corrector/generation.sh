@@ -65,10 +65,21 @@ MODELS=(
 #    run2_SAC_with_ext_speechreps_halved_updatefreq
 #    run2_SAC_baseline_lr0.001_halved_updatefreq
 #    run2_SAC_baseline_lr0.00001_halved_updatefreq
-    run2_SAC_replace_middle_eos_with_sos_halved_updatefreq
-    run2_SAC_zero_mask_toks_per_word_halved_updatefreq
-    run2_SAC_dont_remove_dup_codes_maxtoks20000_4gpus_updfreq2
-    run2_SAC_dont_remove_dup_codes_maxtoks20000_halved_updatefreq
+#    run2_SAC_replace_middle_eos_with_sos_halved_updatefreq
+#    run2_SAC_zero_mask_toks_per_word_halved_updatefreq
+#    run2_SAC_dont_remove_dup_codes_maxtoks20000_4gpus_updfreq2
+#    run2_SAC_dont_remove_dup_codes_maxtoks20000_halved_updatefreq
+    run3_SAC_ext_speechcodes_p_0.3
+    run3_SAC_ext_speechcodes_p_0.2
+#    run3_SAC_remove_dup_codes
+#    run3_SAC_eos_symbol_in_middle
+    run3_SAC_ext_speechcodes_p_0.05
+    run3_SAC_ext_speechcodes_p_0.1
+    run3_SAC_baseline
+#    run3_SAC_one_mask_tok_per_word
+    run3_SAC_ext_speechcodes_p_0.4
+#    run3_SAC_one_mask_tok_per_grapheme
+    run3_SAC_ext_speechcodes_p_0.5
 )
 
 CHECKPOINTS=(
@@ -102,7 +113,11 @@ do
           --dump-waveforms \
           --batch-size 32 \
           --add-count-to-filename \
-          --use-external-speechreps --use-ext-word2speechreps-p 1.0
+          --randomise-examples-p 0.0 \
+          --use-ext-word2speechreps-p 0.0 \
+          --remove-dup-codes-p 0.0 \
+          --mask-tok-per-word zero \
+          --symbol-in-middle sos
 
         # move samples over to folder with more descriptive name
         NEW_OUT_DIR=${OUT_DIR}/${VOCODER}/LJ_TEST_SET/
@@ -121,7 +136,12 @@ do
           --batch-size 32 \
           --txt-file examples/speech_audio_corrector/${TEXT_FILENAME}.txt \
           --add-count-to-filename \
-          --use-external-speechreps --use-ext-word2speechreps-p 1.0
+          --randomise-examples-p 0.0 \
+          --use-external-speechreps \
+          --use-ext-word2speechreps-p 1.0 \
+          --remove-dup-codes-p 0.0 \
+          --mask-tok-per-word zero \
+          --symbol-in-middle sos
 
         # move samples over to folder with more descriptive name
         NEW_OUT_DIR=${OUT_DIR}/${VOCODER}/${TEXT_FILENAME}/

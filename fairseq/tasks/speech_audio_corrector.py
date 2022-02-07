@@ -46,20 +46,23 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
     @classmethod
     def add_args(cls, parser):
         super(SpeechAudioCorrectorTask, cls).add_args(parser)
-        parser.add_argument("--randomise-examples-p", type=float, default=1.0,
-                            help="The probability with which to use random speech codes rather than those from the utterance. 0.0 is equivalent to randomise_examples==False, 0.5 means that 50% of the time speech reps from the matching utterance are used and 50% of the time random speech reps are used.")
-        parser.add_argument("--mask-tok-per-word", type=str, default="one",
-                            help="zero, one, or many. By default model replaces all of the graphemes for a word with just one mask token. many: one mask token per grapheme in word. zero: 0 mask tokens per word.")
+        # model inputs
+        parser.add_argument("--randomise-examples-p", type=float, default=0.0,
+                            help="The probability with which to use random speech codes rather than those from the utterance (both from training set). 0.0 is equivalent to always using speech codes corresponding to a word token 0.5 means that 50% of the time speech reps from the matching utterance are used and 50% of the time random speech reps for the wordtype are used.")
         parser.add_argument("--use-ext-word2speechreps-p", type=float, default=0.0,
                             help="The probability with which to use speech codes from external corpus (VCTK) during training or inference.")
-        parser.add_argument("--remove-dup-codes-p", type=float, default=1.0,
+        parser.add_argument("--mask-tok-per-word", type=str, default="zero",
+                            help="zero, one, or many. By default model replaces all of the graphemes for a word with just one mask token. many: one mask token per grapheme in word. zero: 0 mask tokens per word.")
+        parser.add_argument("--remove-dup-codes-p", type=float, default=0.0,
                             help="The probability with which to remove duplicate speech codes")
+        parser.add_argument("--symbol-in-middle", type=str, default="sos",
+                        help="end grapheme seq with sos and end speech reps seq with eos to try and reduce attention errors, can optionally use eos symbol in middle, might make training harder since harder for model to distinguish between end of graphemes and end of speech codes")
+
+        # data
         parser.add_argument("--new-logmelspec-dir", type=str, default=None,
                             help="User can provide a path to specify the dir where audio data is (feature_manifest folder). Useful for when audio data has been moved to faster scratch disk.")
         parser.add_argument("--recreate-word2speechreps", action="store_true",
                         help="Force recreation of word2speechreps dict even if there exists a pickle on disk to load from. New recreated dict will be saved to disk.")
-        parser.add_argument("--use-sos-symbol-in-middle", action="store_true",
-                        help="end grapheme seq with sos and end speech reps seq with eos to try and reduce attention errors")
 
     def __init__(self, args, src_dict):
         super().__init__(args, src_dict)

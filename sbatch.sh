@@ -113,6 +113,7 @@ mail_type=BEGIN,END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT # same as ALL
 #exclude_list=arnold
 #exclude_list=duflo
 exclude_list=arnold,duflo
+exclude_list=arnold,duflo,nuesslein
 
 # Only include particular nodes
 #include_list=""
