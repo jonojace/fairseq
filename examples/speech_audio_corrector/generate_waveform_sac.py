@@ -45,6 +45,7 @@ def make_parser():
     )
     # parser.add_argument("--speechreps-add-mask-tokens", action="store_true")
     parser.add_argument("--add-count-to-filename", action="store_true")
+    parser.add_argument("--use-sample-id-as-filename", action="store_true")
     parser.add_argument("--use-external-speechreps", action="store_true",
                         help="Use this flag if you want to use speechreps from the external dataset to do inference.")
 
@@ -142,6 +143,7 @@ def dump_result(
         count,
         vocoder,
         add_count_to_filename,
+        use_sample_id_as_filename,
         sample_id,
         text,
         attn,
@@ -152,14 +154,33 @@ def dump_result(
         wave_targ,
         sac_friendly_text,
 ):
+    # print("inside dump_result() is_na_model", is_na_model)
+    # print("inside dump_result() args", args)
+    # print("inside dump_result() count", count)
+    # print("inside dump_result() vocoder", vocoder)
+    # print("inside dump_result() add_count_to_filename", add_count_to_filename)
+    # print("inside dump_result() sample_id", sample_id)
+    # print("inside dump_result() text", text)
+    # print("inside dump_result() attn", attn)
+    # print("inside dump_result() eos_prob", eos_prob)
+    # print("inside dump_result() feat_pred", feat_pred)
+    # print("inside dump_result() wave_pred", wave_pred)
+    # print("inside dump_result() feat_targ", feat_targ)
+    # print("inside dump_result() wave_targ", wave_targ)
+    # print("inside dump_result() sac_friendly_text", sac_friendly_text)
+    # print("inside dump_result() use_sample_id_as_filename", use_sample_id_as_filename)
+
     # add useful info to filename
-    if sample_id and sac_friendly_text:
-        filename_no_ext = f"{sample_id}-{sac_friendly_text}"
+    if use_sample_id_as_filename:
+        filename_no_ext = sample_id
     else:
-        if add_count_to_filename:
-            filename_no_ext = f"{count}-{text}"
+        if sample_id and sac_friendly_text:
+            filename_no_ext = f"{sample_id}-{sac_friendly_text}"
         else:
-            filename_no_ext = f"{text}"
+            if add_count_to_filename:
+                filename_no_ext = f"{count}-{text}"
+            else:
+                filename_no_ext = f"{text}"
 
     sample_rate = args.output_sample_rate
     out_root = Path(args.results_path)
@@ -301,8 +322,7 @@ def main(args):
     print("*** dataset.mask_tok_per_word:", dataset.mask_tok_per_word)
     print("*** dataset.remove_dup_codes_p:", dataset.remove_dup_codes_p)
     print("*** dataset.symbol_in_middle:", dataset.symbol_in_middle)
-
-    exit
+    print("*** dataset.mask_words_p:", dataset.mask_words_p)
 
     if args.txt_file:
         # generate test sentences in txt file (WARNING: do not have underlying ground truth audio for obj eval!)
@@ -361,7 +381,7 @@ def main(args):
                     sort_by_text=True if args.txt_file else False,
             ):
                 count += 1
-                dump_result(is_na_model, args, count, vocoder, args.add_count_to_filename, *result)
+                dump_result(is_na_model, args, count, vocoder, args.add_count_to_filename, args.use_sample_id_as_filename, *result)
 
     print(f"*** Finished SAC generation of {count} items ***")
 

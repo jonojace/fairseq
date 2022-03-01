@@ -25,16 +25,17 @@ python -m ipykernel install --user --name fairseq --display-name "Python (fairse
 pip install jupyterlab
 pip install torchdistill
 
-# get latest version of gcc (for installing apex)
+# get correct version of gcc (greater than 4.0 but less than 8.0) (for installing apex)
 # remove cluster-scripts from PATH i.e.:
-PATH=/opt/mendeleydesktop/bin:/usr/lib64/qt-3.3/bin:/opt/mendeleydesktop/bin:/home/s1785140/miniconda3/bin:/home/s1785140/miniconda3/condabin:/home/s1785140/miniconda3/bin:/usr/local/bin:/usr/lib/jvm/java-1.8.0/bin:/opt/texlive/2019/bin/x86_64-linux:/usr/local/sbin:/usr/bin:/sbin:/usr/pgsql-12/bin:/opt/sicstus-4.0.1/bin
-scl enable devtoolset-10 bash
+#PATH=/opt/mendeleydesktop/bin:/usr/lib64/qt-3.3/bin:/opt/mendeleydesktop/bin:/home/s1785140/miniconda3/bin:/home/s1785140/miniconda3/condabin:/home/s1785140/miniconda3/bin:/usr/local/bin:/usr/lib/jvm/java-1.8.0/bin:/opt/texlive/2019/bin/x86_64-linux:/usr/local/sbin:/usr/bin:/sbin:/usr/pgsql-12/bin:/opt/sicstus-4.0.1/bin
+scl enable devtoolset-7 bash
 
 # install apex 
 cd
 export LD_LIBRARY_PATH=/opt/cuda-10.2.89_440_33/lib64/
 export PATH=$PATH:/opt/cuda-10.2.89_440_33/bin
 whereis nvcc # check if it works
+# activate newest version of gcc
 git clone https://github.com/NVIDIA/apex
 cd apex
 pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
@@ -652,6 +653,19 @@ Instructions @ https://github.com/pytorch/fairseq/tree/main/examples/textless_nl
 
 Use fairseq/examples/speech_audio_corrector/bash_scripts/recursive_resample.sh
 
+LJ Speech
+```bash
+cd ~/data/LJSpeech-1.1/audio_data/LJSpeech-1.1/
+mkdir -p wavs_16kHz
+for i in wavs/*.wav; 
+do 
+  echo $i 
+  o=wavs_16kHz/${i#wavs/}
+  sox "$i" -r 16000 "${o%.wav}.wav"
+done
+```
+
+VCTK
 ```bash
 cd ~/data
 for i in vqvae_wavernn_trimmed_wavs/*/*.wav; 
@@ -682,7 +696,7 @@ Seems to be ok to put 0 for number_of_samples
 ...
 ```
 
-use create_audio_manifest_for_hubert_code_extraction.ipynb
+use create_audio_manifest_for_hubert_code_extraction.ipynb to do this 
 
 ### Download pretrained hubert and k-means clustering models
 
@@ -701,10 +715,84 @@ mv km.bin km100.bin
 
 ### extract codes
 
+Get k means model
 ```bash
+cd ~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/
+wget https://dl.fbaipublicfiles.com/textless_nlp/gslm/hubert/km100/km.bin
+mv km.bin km100.bin
+wget https://dl.fbaipublicfiles.com/textless_nlp/gslm/hubert/km50/km.bin
+mv km.bin km50.bin
+wget https://dl.fbaipublicfiles.com/textless_nlp/gslm/hubert/km200/km.bin
+mv km.bin km200.bin
+```
 
+LJ Speech 
+```bash
+NUM_CLUSTERS=50  # change to 50 100 or 200
 TYPE=hubert
-KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km100.bin
+KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km${NUM_CLUSTERS}.bin
+ACSTC_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/hubert_base_ls960.pt
+LAYER=6
+MANIFEST=~/fairseq/examples/speech_audio_corrector/manifests/ljspeech.txt
+OUT_QUANTIZED_FILE=~/fairseq/examples/speech_audio_corrector/ljspeech_quantized_km${NUM_CLUSTERS}.txt
+EXTENSION=".wav"
+
+# CUDA_VISIBLE_DEVICES=9
+cd ~/fairseq  
+python examples/textless_nlp/gslm/speech2unit/clustering/quantize_with_kmeans.py \
+    --feature_type $TYPE \
+    --kmeans_model_path $KM_MODEL_PATH \
+    --acoustic_model_path $ACSTC_MODEL_PATH \
+    --layer $LAYER \
+    --manifest_path $MANIFEST \
+    --out_quantized_file_path $OUT_QUANTIZED_FILE \
+    --extension $EXTENSION
+    
+NUM_CLUSTERS=100  # change to 50 100 or 200
+TYPE=hubert
+KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km${NUM_CLUSTERS}.bin
+ACSTC_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/hubert_base_ls960.pt
+LAYER=6
+MANIFEST=~/fairseq/examples/speech_audio_corrector/manifests/ljspeech.txt
+OUT_QUANTIZED_FILE=~/fairseq/examples/speech_audio_corrector/ljspeech_quantized_km${NUM_CLUSTERS}.txt
+EXTENSION=".wav"
+
+# CUDA_VISIBLE_DEVICES=9
+cd ~/fairseq  
+python examples/textless_nlp/gslm/speech2unit/clustering/quantize_with_kmeans.py \
+    --feature_type $TYPE \
+    --kmeans_model_path $KM_MODEL_PATH \
+    --acoustic_model_path $ACSTC_MODEL_PATH \
+    --layer $LAYER \
+    --manifest_path $MANIFEST \
+    --out_quantized_file_path $OUT_QUANTIZED_FILE \
+    --extension $EXTENSION
+    
+NUM_CLUSTERS=200  # change to 50 100 or 200
+TYPE=hubert
+KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km${NUM_CLUSTERS}.bin
+ACSTC_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/hubert_base_ls960.pt
+LAYER=6
+MANIFEST=~/fairseq/examples/speech_audio_corrector/manifests/ljspeech.txt
+OUT_QUANTIZED_FILE=~/fairseq/examples/speech_audio_corrector/ljspeech_quantized_km${NUM_CLUSTERS}.txt
+EXTENSION=".wav"
+
+# CUDA_VISIBLE_DEVICES=9
+cd ~/fairseq  
+python examples/textless_nlp/gslm/speech2unit/clustering/quantize_with_kmeans.py \
+    --feature_type $TYPE \
+    --kmeans_model_path $KM_MODEL_PATH \
+    --acoustic_model_path $ACSTC_MODEL_PATH \
+    --layer $LAYER \
+    --manifest_path $MANIFEST \
+    --out_quantized_file_path $OUT_QUANTIZED_FILE \
+    --extension $EXTENSION
+```
+
+VCTK
+```bash
+TYPE=hubert
+KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km50.bin
 ACSTC_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/hubert_base_ls960.pt
 LAYER=6
 MANIFEST=~/fairseq/examples/speech_audio_corrector/manifests/vctk.txt

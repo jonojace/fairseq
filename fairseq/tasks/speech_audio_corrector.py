@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-from fairseq.data.audio.speech_audio_corrector_dataset import SpeechAudioCorrectorDatasetCreator
+from fairseq.data.audio.speech_audio_corrector_dataset import SpeechAudioCorrectorDatasetCreator, get_num_clusters
 from fairseq.tasks import register_task
 from fairseq.tasks.text_to_speech import TextToSpeechTask
 from fairseq.speech_generator import (
@@ -47,6 +47,8 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
     def add_args(cls, parser):
         super(SpeechAudioCorrectorTask, cls).add_args(parser)
         # model inputs
+        parser.add_argument("--mask-words-p", type=float, default=0.5,
+                            help="The probability with which to use random speech codes rather than those from the utterance (both from training set). 0.0 is equivalent to always using speech codes corresponding to a word token 0.5 means that 50% of the time speech reps from the matching utterance are used and 50% of the time random speech reps for the wordtype are used.")
         parser.add_argument("--randomise-examples-p", type=float, default=0.0,
                             help="The probability with which to use random speech codes rather than those from the utterance (both from training set). 0.0 is equivalent to always using speech codes corresponding to a word token 0.5 means that 50% of the time speech reps from the matching utterance are used and 50% of the time random speech reps for the wordtype are used.")
         parser.add_argument("--use-ext-word2speechreps-p", type=float, default=0.0,
@@ -63,22 +65,19 @@ class SpeechAudioCorrectorTask(TextToSpeechTask):
                             help="User can provide a path to specify the dir where audio data is (feature_manifest folder). Useful for when audio data has been moved to faster scratch disk.")
         parser.add_argument("--recreate-word2speechreps", action="store_true",
                         help="Force recreation of word2speechreps dict even if there exists a pickle on disk to load from. New recreated dict will be saved to disk.")
+        parser.add_argument("--quantized-speechreps-file", type=str, default="/home/s1785140/fairseq/examples/speech_audio_corrector/lj_speech_quantized.txt",
+                            help="User can provide a path to specify the speech reps file that is used during training. Typically used to change between km cluster 50 100 and 200 quantizations")
 
     def __init__(self, args, src_dict):
+        # add new symbols to src_dict before calling super, as super tries to build model.
+        # src_dict needs to be correct size when building model embeddings
+        num_clusters = get_num_clusters(args.quantized_speechreps_file)
+        src_dict.add_symbol("<mask>")
+        for i in range(num_clusters):
+            src_dict.add_symbol(f"HUB{i}") # add to src_dict entries for hubert codes i.e. HUB0, HUB1, ..., HUB<k-1>
+
         super().__init__(args, src_dict)
-
         self.args = args
-
-        # add symbols for SAC to dictionary
-        self.src_dict.add_symbol("<mask>")
-        K=100
-        for i in range(K):
-            # add to src_dict entries for hubert codes i.e. HUB0, HUB1, ..., HUB<k-1>
-            self.src_dict.add_symbol(f"HUB{i}")
-
-        # print entire dictionary should be graphemes + hubert codes
-        print("(symbol, index) mapping in dictionary for Speech Audio Corrector Training:")
-        print([(symbol, src_dict.index(symbol)) for symbol in src_dict.symbols])
 
     def load_dataset(self, split, epoch=1, combine=False, **kwargs):
         is_train_split = split.startswith('train')

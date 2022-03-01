@@ -216,21 +216,23 @@ def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps,
     else:
         unique_id = None # just get speechreps for word, pulling from a random utterance
 
-    # get speechreps for word
-    get_specific_word_example = (
-            random.random() < 1.0 - randomise_examples_p
-            and unique_id and unique_id in word2speechreps[wordtype]
-    )
-
-    if get_specific_word_example:
-        # particular word example
-        # print("not random!!!")
-        word_reps = word2speechreps[wordtype][unique_id]
-    else:
+    if random.random() > 1.0 - randomise_examples_p:
         # random example for a wordtype
         # print("random!!!")
         random_unique_id = random.sample(word2speechreps[wordtype].keys(), k=1)[0]
         word_reps = word2speechreps[wordtype][random_unique_id]
+    else:
+        get_specific_word_example = (unique_id and unique_id in word2speechreps[wordtype])
+        if get_specific_word_example:
+            # particular word example
+            # print("not random, specific example!!!")
+            word_reps = word2speechreps[wordtype][unique_id]
+        else:
+            # this is useful for inference time where we want to consistently pull same speech codes
+            examples = word2speechreps[wordtype].keys()
+            id_of_first_example = list(sorted(examples))[0]
+            # print(f"utt_id:{utt_id} count_of_word:{count_of_word} unique_id: {unique_id}. not random, retrieving first example for {wordtype}!!!", id_of_first_example, f"total examples: {len(examples)}")
+            word_reps = word2speechreps[wordtype][id_of_first_example]
 
     # optionally collapse duplicate codes
     word_reps = collapse_dups(word_reps, remove_dup_prob=remove_dup_prob, remove_dup_rand_num=remove_dup_rand_num)
@@ -474,7 +476,7 @@ def get_text_inputs(tokens, mask_token,
 
     return graphemes, word_pos_of_graphemes
 
-def get_speechreps_inputs(tokens, word2speechreps,
+def get_speechreps_inputs(tokens, main_word2speechreps,
                           ext_word2speechreps=None,
                           use_ext_word2speechreps_p=None,  # with what probability should we use speech reps from external corpus
                           utt_id=None,  #optionally provide this so that correct example can be retrieved rather than a random example
@@ -542,7 +544,7 @@ def get_speechreps_inputs(tokens, word2speechreps,
                 )
                 if use_main_word2speechreps:
                     # print("debug using training data speechreps!!!")
-                    w2sr = word2speechreps
+                    w2sr = main_word2speechreps
                 else:
                     # print("debug using external data speechreps!!!")
                     w2sr = ext_word2speechreps

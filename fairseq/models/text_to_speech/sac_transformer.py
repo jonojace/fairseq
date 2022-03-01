@@ -52,6 +52,7 @@ class SACTransformerEncoder(FairseqEncoder):
         self.dropout_module = FairseqDropout(
             p=args.dropout, module_name=self.__class__.__name__
         )
+
         self.embed_tokens = nn.Embedding(len(src_dict), args.encoder_embed_dim,
                                          padding_idx=self.padding_idx)
         num_segments = 2 # grapheme and speechreps segments

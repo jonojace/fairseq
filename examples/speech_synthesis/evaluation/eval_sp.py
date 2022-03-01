@@ -11,6 +11,8 @@ Signal processing-based evaluation using waveforms
 import csv
 import numpy as np
 import os.path as op
+import os
+import json
 
 import torch
 import tqdm
@@ -66,7 +68,7 @@ def eval_mel_spectral_distortion(samples, device="cuda"):
     return eval_distortion(samples, batch_mel_spectral_distortion, device)
 
 
-def print_results(results, show_bin):
+def print_results(results, show_bin, save_path=None):
     results = np.array(list(filter(lambda x: x is not None, results)))
 
     np.set_printoptions(precision=3)
@@ -91,6 +93,16 @@ def print_results(results, show_bin):
             floatfmt=".4f"
         ))
 
+        # also save result
+        if save_path is not None:
+            # write to txt
+            with open(save_path + ".txt", 'w') as f:
+                lines = [f"{key}: {val}" for key, val in res.items()]
+                f.write("\n".join(lines))
+            # dump dict
+            with open(save_path + ".json", 'w') as f:
+                json.dump(res, f)
+
     print(">>>> ALL")
     _print_result(results)
 
@@ -106,17 +118,26 @@ def print_results(results, show_bin):
             _print_result(bin_results)
 
 
-def main(eval_spec, mcd, msd, show_bin):
+def main(eval_spec, mcd, msd, show_bin, save_dir):
     samples = load_eval_spec(eval_spec)
     device = "cpu"
+
     if mcd:
         print("===== Evaluate Mean Cepstral Distortion =====")
         results = eval_mel_cepstral_distortion(samples, device)
-        print_results(results, show_bin)
+        if save_dir is not None:
+            save_path = os.path.join(save_dir, "mcd")
+        else:
+            save_path = None
+        print_results(results, show_bin, save_path)
     if msd:
         print("===== Evaluate Mean Spectral Distortion =====")
         results = eval_mel_spectral_distortion(samples, device)
-        print_results(results, show_bin)
+        if save_dir is not None:
+            save_path = os.path.join(save_dir, "msd")
+        else:
+            save_path = None
+        print_results(results, show_bin, save_path)
 
 
 if __name__ == "__main__":
@@ -126,6 +147,7 @@ if __name__ == "__main__":
     parser.add_argument("--mcd", action="store_true")
     parser.add_argument("--msd", action="store_true")
     parser.add_argument("--show-bin", action="store_true")
+    parser.add_argument("--save-dir", type=str, default=None, help="where to save results files")
     args = parser.parse_args()
 
-    main(args.eval_spec, args.mcd, args.msd, args.show_bin)
+    main(args.eval_spec, args.mcd, args.msd, args.show_bin, args.save_dir)

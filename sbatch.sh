@@ -21,38 +21,41 @@
 #    ../sbatch.sh 4 2080 python train_tacotron.py --hp_file hparams.py
 #    will request 4 2080s
 
-
 # =====================
-# define directories used for copying preprocessed audio data to the node's scratch disk 
-# =====================
-#repo_home="/home/${USER}/representation-mixing"
-#scratch_folder="/disk/scratch/${USER}"
-
-# =====================
-# Global vars
+# Exclude particular nodes
 # =====================
 
-LOG_DIR="./logs_slurm"
+# WARNING WARNING WARNING using an exclude list may fail! debug this with INF support
+#exclude_list=""
+#exclude_list=arnold
+#exclude_list=duflo
+exclude_list=arnold,duflo
+
+# Only include particular nodes
+include_list=""
+#include_list=arnold
 
 # =====================
 # check if specific gpu was supplied
 # =====================
 
-gpu_num=$1
+jobname=$1
 
-if [ $2 = "2080" ]; then
+gpu_num=$2
+
+if [ $3 = "2080" ]; then
     gpu_type="gtx2080ti:"
-    cmd_to_run_on_cluster=${@:3} #skip first two arguments as this is the number of gpus and the gpu specified
+    cmd_to_run_on_cluster=${@:4} #skip jobname, gpu_num, gpu_type
 else
     gpu_type=""
-    cmd_to_run_on_cluster=${@:2} #skip first argument as this is the number of gpus
+    cmd_to_run_on_cluster=${@:3} #skip jobname, gpu_num
 #    cmd_to_run_on_cluster=${@} #use all supplied arguments i.e. "python train_tacotron.py --hp_file hparams.py"
 fi
 
 # =====================
 # Create directory for logging files if it doesn't exist
 # =====================
-
+LOG_DIR="./logs_slurm"
 if [ ! -d $LOG_DIR ]; then
   mkdir -p $LOG_DIR;
 fi
@@ -102,31 +105,21 @@ tasks=1
 part=ILCC_GPU,CDT_GPU
 # part=ILCC_GPU,CDT_GPU,M_AND_I_GPU
 time=7-00:00:00
-#mem=8G
-mem=16G
+mem=8G
+#mem=16G
 mail_user=s1785140@sms.ed.ac.uk
 mail_type=BEGIN,END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT # same as ALL
 #mail_type=END,FAIL,INVALID_DEPEND,REQUEUE,STAGE_OUT
-
-# Exclude particular nodes
-#exclude_list=""
-#exclude_list=arnold
-#exclude_list=duflo
-exclude_list=arnold,duflo
-exclude_list=arnold,duflo,nuesslein
-
-# Only include particular nodes
-#include_list=""
-#include_list=arnold
 
 # =====================
 # create the sbatch file
 # =====================
 #shebang
 echo '#!/bin/bash' > temp_slurm_job.sh
-echo "" >> temp_slurm_job.sh
-
+echo ""
 #job params
+
+echo "#SBATCH --job-name=${jobname}" >> temp_slurm_job.sh
 echo "#SBATCH --nodes=${nodes}" >> temp_slurm_job.sh
 echo "#SBATCH --gres=gpu:${gpus}" >> temp_slurm_job.sh
 echo "#SBATCH --cpus-per-task=${cpus}" >> temp_slurm_job.sh
@@ -140,6 +133,12 @@ echo "#SBATCH --mail-user=${mail_user}" >> temp_slurm_job.sh
 echo "#SBATCH --mail-type=${mail_type}" >> temp_slurm_job.sh
 echo "#SBATCH --output=${LOG_DIR}/%j" >> temp_slurm_job.sh #Note! remember to make this directory if it doesn't exist
 
+echo ""
+
+
+#####################################################################
+# Include or exclude nodes
+
 # exclude list
 if [ -z "$exclude_list" ]
 then
@@ -149,7 +148,7 @@ else
       echo "#SBATCH --exclude=${exclude_list}" >> temp_slurm_job.sh
 fi
 
-# nodelist
+# include list
 if [ -z "$include_list" ]
 then
       echo "include_list is empty"
@@ -170,6 +169,7 @@ echo "#### handle copying of data and feature manifest manipulation based on wha
     # dynamically change back to scratch if scratch_fast doesn't exist or doesn't have write permissions
     # i.e. in the training command, replace feature_manifest with feature_manifest_standardscratch
 echo 'scratch_disk=$(bash examples/speech_audio_corrector/bash_scripts/check_scratchdisks.sh)' >> temp_slurm_job.sh
+echo 'echo scratch disk is $scratch_disk' >> temp_slurm_job.sh
 echo 'cmd_to_run_on_cluster="${cmd_to_run_on_cluster/--new-logmelspec-dir None/--new-logmelspec-dir $scratch_disk}"' >> temp_slurm_job.sh
 #echo "if [ ! -w "/disk/scratch_fast" ]; then" >> temp_slurm_job.sh
 #    echo 'cmd_to_run_on_cluster="${cmd_to_run_on_cluster/feature_manifest/feature_manifest_standardscratch}"' >> temp_slurm_job.sh
@@ -208,7 +208,8 @@ echo 'cmd_to_run_on_cluster="${cmd_to_run_on_cluster/--new-logmelspec-dir None/-
 echo "" >> temp_slurm_job.sh
 echo "#### the command that will be run ####" >> temp_slurm_job.sh
 echo 'echo Running the following command on slurm: ${cmd_to_run_on_cluster}' >> temp_slurm_job.sh
-echo 'srun ${cmd_to_run_on_cluster}' >> temp_slurm_job.sh
+#echo 'srun ${cmd_to_run_on_cluster}' >> NB temp_slurm_job.sh # is using srun causing jobs to fail to get onto cluster???
+echo '${cmd_to_run_on_cluster}' >> temp_slurm_job.sh
 
 ##post experiment logging
 #echo "echo \"Job started: $start_date\"" >> temp_slurm_job.sh
@@ -220,7 +221,8 @@ echo 'srun ${cmd_to_run_on_cluster}' >> temp_slurm_job.sh
 # =====================
 # submit this temporary sbatch script to the cluster
 # =====================
-echo
-echo =================== temp_slurm_job.sh below ======================
-cat temp_slurm_job.sh # debug
+#echo
+#echo =================== temp_slurm_job.sh below ======================
+#cat temp_slurm_job.sh # debug
+chmod +x temp_slurm_job.sh
 sbatch temp_slurm_job.sh # submit script to slurm

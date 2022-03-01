@@ -86,6 +86,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             word2speechreps: Optional[Dictionary] = None,
             ext_word2speechreps: Optional[Dictionary] = None,
             ids2word_alignments: Optional[Dictionary] = None,
+            num_clusters: int = None,
     ):
         """
 
@@ -126,6 +127,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         self.mask_tok_per_word = args.mask_tok_per_word
         self.remove_dup_codes_p = args.remove_dup_codes_p
         self.symbol_in_middle = args.symbol_in_middle
+        self.mask_words_p = args.mask_words_p
 
         print("*** Important dataset training time attributes:")
         print("*** self.randomise_examples_p:", self.randomise_examples_p)
@@ -133,9 +135,11 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         print("*** self.mask_tok_per_word:", self.mask_tok_per_word)
         print("*** self.remove_dup_codes_p:", self.remove_dup_codes_p)
         print("*** self.symbol_in_middle:", self.symbol_in_middle)
+        print("*** self.mask_words_p:", self.mask_words_p)
 
         ################################################################################################################
         # add SAC specific data structure to this dataset object
+        self.num_clusters = num_clusters
         self.token_pos_pad_idx = 0
         self.word_pos_pad_idx = 0
         self.segment_pad_idx = 0
@@ -175,7 +179,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         # are easier to align to our speech reps. (tgt_text contains symbols and capitalisation that is not
         # taken into account by mfa
         mfa_text = get_mfa_text(self.ids2word_alignments[utt_id])
-        masked_text = randomly_mask_words(mfa_text)
+        masked_text = randomly_mask_words(mfa_text, p=self.mask_words_p)
         sac_dataset_item = self.get_dataset_item_from_utt(
             masked_text,
             utt_id=utt_id,
@@ -512,16 +516,21 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
         cls.word2speechreps_dir = "/home/s1785140/data/word2speechreps"
 
         # LJSpeech word2speechreps
-        speechrep_file = "/home/s1785140/fairseq/examples/speech_audio_corrector/lj_speech_quantized.txt"
+        speechrep_file = args.quantized_speechreps_file # "/home/s1785140/fairseq/examples/speech_audio_corrector/lj_speech_quantized.txt"
+        num_clusters = get_num_clusters(speechrep_file)
         alignments_dir = "/home/s1785140/data/ljspeech_MFA_alignments_from_fb"
         word2speechreps, ids2word_alignments = cls.get_word2speechreps(
-            speechrep_file, alignments_dir, ids=ids, corpus="ljspeech", split=split_name, force_creation=args.recreate_word2speechreps,
+            speechrep_file, alignments_dir, ids=ids, corpus="ljspeech",
+            split=split_name, force_creation=args.recreate_word2speechreps,
+            num_clusters=num_clusters,
         )
 
         # VCTK word2speechreps
         # additional external source of word-aligned speech reps
         # (potentially for more robust multi-speaker corrections)
         ext_speechrep_file = "/home/s1785140/fairseq/examples/speech_audio_corrector/vctk_quantized.txt"
+        ext_num_clusters = get_num_clusters(ext_speechrep_file)
+        #TODO add assertion to check that num_clusters == ext_num_clusters
         ext_alignments_dir = "/home/s1785140/data/vctk_montreal_alignments_from_trimmed_wavs_no_nested_dirs"
         if split_name == "train":
             ext_speechreps_speakers_to_incl = [
@@ -547,6 +556,7 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
             corpus="vctk", split=split_name,
             force_creation=args.recreate_word2speechreps,
             ext_speechreps_speakers_to_incl=ext_speechreps_speakers_to_incl,
+            num_clusters=ext_num_clusters,
         )
 
         sac_dataset = SpeechAudioCorrectorDataset(
@@ -559,6 +569,7 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
             durations=durations, pitches=pitches, energies=energies,
             word2speechreps=word2speechreps, ext_word2speechreps=ext_word2speechreps,
             ids2word_alignments=ids2word_alignments,
+            num_clusters=num_clusters,
         )
 
         return sac_dataset
@@ -608,7 +619,9 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
         return utt_id2word_alignments
 
     @classmethod
-    def get_word2speechreps(cls, speechrep_file, alignments_dir, ids, corpus, split, ext_speechreps_speakers_to_incl=None, force_creation=False):
+    def get_word2speechreps(cls, speechrep_file, alignments_dir, ids, corpus, split,
+                            ext_speechreps_speakers_to_incl=None, force_creation=False,
+                            num_clusters=100):
         """
         fast way to force recreation of data structures is by deleting them from disk @ cls.word2speechreps_dir
         """
@@ -616,7 +629,7 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
         prepend_str = corpus
         if split is not None:
             prepend_str = prepend_str + f"_{split}"
-        filename = f"{prepend_str}_word2speechreps.pickle"
+        filename = f"{prepend_str}_km{num_clusters}_word2speechreps.pickle"
         filepath = os.path.join(cls.word2speechreps_dir, filename)
 
         # see if existing word2speechreps exists for corpus and split
@@ -624,13 +637,13 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
             # load dict from disk
             with open(filepath, "rb") as f:
                 word2speechreps, ids2word_alignments = pickle.load(f)
-            print(f"Finished loading word2speechreps for {corpus} {split}. Loaded from {filepath}.")
+            print(f"Finished loading word2speechreps for {corpus} {split} km{num_clusters}. Loaded from {filepath}.")
         else:
             # create dict from scratch
             if force_creation:
-                print(f"Forced recreation of word2speechreps for {corpus} {split}. Creating...")
+                print(f"Forced recreation of word2speechreps for {corpus} {split} km{num_clusters}. Creating @ {filepath}...")
             else:
-                print(f"word2speechreps for {corpus} {split} not found. Creating...")
+                print(f"word2speechreps for {corpus} {split} km{num_clusters} not found. Creating @ {filepath}...")
             # load quantised speech reps file
             ids2speechreps = cls.load_speechreps(speechrep_file, ext_speechreps_speakers_to_incl=ext_speechreps_speakers_to_incl, corpus=corpus)
 
@@ -690,13 +703,13 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
 
         return words
 
-def test():
-    pass
-
-
-if __name__ == '__main__':
-    """
-    to test, run:
-        python /home/s1785140/fairseq/fairseq/data/audio/speech_audio_corrector_dataset.py
-    """
-    test()
+def get_num_clusters(quantized_dataset_filepath, possible_num_codes=(50,100,200)):
+    code_set = set()
+    with open(quantized_dataset_filepath,'r') as f:
+        lines = f.readlines()
+    for l in lines:
+        codes = l.split('|')[1].strip()
+        codes = [int(c) for c in codes.split()]
+        code_set.update(codes)
+    assert len(code_set) in possible_num_codes
+    return len(code_set)
