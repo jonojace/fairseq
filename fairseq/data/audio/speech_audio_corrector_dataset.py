@@ -59,6 +59,7 @@ class SpeechAudioCorrectorDatasetItem(TextToSpeechDatasetItem):
     segment: torch.Tensor = None
     words_and_speechreps: List[Tuple] = None
     raw_text: str = None
+    token_ids: str = None
 
 class SpeechAudioCorrectorDataset(TextToSpeechDataset):
     def __init__(
@@ -215,7 +216,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
 
         # print("INSIDE get_data_item_from_utt()", self.use_ext_word2speechreps_p)
 
-        speechreps, word_pos_of_speechreps = get_speechreps_inputs(
+        speechreps, word_pos_of_speechreps, token_ids = get_speechreps_inputs(
             tokens, self.word2speechreps,
             ext_word2speechreps=self.ext_word2speechreps,
             use_ext_word2speechreps_p=self.use_ext_word2speechreps_p,
@@ -289,6 +290,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             speechreps_len=speechreps_len,
             segment=segment,
             raw_text=utt,
+            token_ids=token_ids,
             # words_and_speechreps=words_and_speechreps,
         )
 
@@ -345,6 +347,8 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
         src_texts = [self.tgt_dict.string(samples[i].target, include_eos=True) for i in order]
         raw_texts = [samples[i].raw_text for i in order]
 
+        token_ids = [samples[i].token_ids for i in order]
+
         ##############################################
         # some features set to None as they are not
         # necessary for synthesis from text utts
@@ -366,6 +370,7 @@ class SpeechAudioCorrectorDataset(TextToSpeechDataset):
             "raw_texts": raw_texts,
             "src_texts": src_texts,
             "words_and_speechreps": None,
+            "token_ids": token_ids, # the unique identifier for the word tokens replaced as speech codes -> utt_id|count
         }
 
         ##############################################
@@ -547,9 +552,47 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
         elif split_name == "dev":
             ext_speechreps_speakers_to_incl = ['p343','p345','p347'] # next 3 speakers
         elif split_name == "test":
-            ext_speechreps_speakers_to_incl = ['p351', 'p360', 'p361', 'p362', 'p363', 'p364', 'p374', 'p376'] # final 8 speakers
+            # ext_speechreps_speakers_to_incl = ['p351', 'p360', 'p361', 'p362', 'p363', 'p364', 'p374', 'p376'] # final 8 speakers of vctk
+
+            # female south scottish us speakers @ test_utts_vctk_oovs_female.txt
+            # ext_speechreps_speakers_to_incl = [ "p234", "p238", "p249", "p255", "p262", "p264", "p265", "p293",
+            #                                     "p299", "p310", "p313", "p340", "p351", "p261", "p225", "p228",
+            #                                     "p229", "p231", "p233", "p240", "p250", "p253", "p267", "p268",
+            #                                     "p276", "p282", "p288", "p323", "p294", "p297", "p300", "p301",
+            #                                     "p303", "p306", "p307", "p308", "p312", "p317", "p318", "p329",
+            #                                     "p330", "p333", "p339", "p341", "p343", "p361", "p362", "p305"]
+
+            ################################################################################
+            # female male south us speakers @ test_utts_vctk_oovs_male_fem_us_south.txt
+            # all (female male south us)
+            # ext_speechreps_speakers_to_incl = [
+            #     "p316", "p334", "p345", "p360", "p363", "p376", "p311", "p294", "p297", "p300", "p301", "p303", "p306", "p307", "p308", "p312", "p317", "p318", "p329", "p330", "p333",
+            #     "p339", "p341", "p343", "p361", "p362", "p305", "p226", "p243", "p254", "p259", "p273", "p274", "p278", "p279", "p285", "p286", "p287", "p374", "p225", "p228", "p229",
+            #     "p231", "p233", "p240", "p250", "p253", "p267", "p268", "p276", "p282", "p288", "p323",
+            # ]
+
+            ################################################################################
+            # female scot/us speakers @ test_utts_vctk_oovs_fem_us_scot.txt
+            # all (female male south us)
+            # ext_speechreps_speakers_to_incl = [
+            #     "p294", "p297", "p300", "p301", "p303", "p306", "p307", "p308", "p312", "p317", "p318", "p329", "p330", "p333", "p339", "p341", "p343", "p361", "p362", "p305",
+            #     "p234", "p238", "p249", "p255", "p262", "p264", "p265", "p293", "p299", "p310", "p313", "p340", "p351", "p261"
+            # ]
+
+            # # us eng female: p294, p297, p300, p301, p303, p306, p307, p308, p312, p317, p318, p329, p330, p333, p339, p341, p343, p361, p362, p305
+            # ext_speechreps_speakers_to_incl = [
+            #     "p294", "p297", "p300", "p301", "p303", "p306", "p307", "p308", "p312", "p317", "p318", "p329", "p330", "p333", "p339", "p341", "p343", "p361", "p362", "p305",
+            # ]
+
+            # scot eng female: p234, p238, p249, p255, p262, p264, p265, p293, p299, p310, p313, p340, p351, p261
+            ext_speechreps_speakers_to_incl = [
+                "p234", "p238", "p249", "p255", "p262", "p264", "p265", "p293", "p299", "p310", "p313", "p340", "p351", "p261"
+            ]
         else:
             raise ValueError
+
+        print("inside DatasetCreator() split_name:", split_name)
+        print("inside DatasetCreator() ext_speechreps_speakers_to_incl:", ext_speechreps_speakers_to_incl)
 
         ext_word2speechreps, _ = cls.get_word2speechreps(
             ext_speechrep_file, ext_alignments_dir, ids=None,

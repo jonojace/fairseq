@@ -14,6 +14,8 @@ def get_wordlevel_reprs(speechreps, word_align):
     return speechreps[start_idx:end_idx]
 
 def get_word2speechreps(ids, ids2speechreps, ids2word_alignments):
+    # print("in get_word2speechreps!!!!", ids2speechreps.keys())
+
     word2speechreps = {}
     for utt_id in ids:
         speech_reps = ids2speechreps[utt_id]
@@ -210,29 +212,33 @@ def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps,
     """return the speechreps for a wordtype
     optionally remove duplicates"""
 
-    # unique_id is a unique identifier for a particular word example
+    # token_id is a unique identifier for a particular word example
     if utt_id and count_of_word:
-        unique_id = f"{utt_id}|{count_of_word}"
+        token_id = f"{utt_id}|{count_of_word}"
     else:
-        unique_id = None # just get speechreps for word, pulling from a random utterance
+        token_id = None # just get speechreps for word, pulling from a random utterance
 
     if random.random() > 1.0 - randomise_examples_p:
         # random example for a wordtype
         # print("random!!!")
-        random_unique_id = random.sample(word2speechreps[wordtype].keys(), k=1)[0]
-        word_reps = word2speechreps[wordtype][random_unique_id]
+        token_id = random.sample(word2speechreps[wordtype].keys(), k=1)[0]
+        word_reps = word2speechreps[wordtype][token_id]
+        print("random example!!!, using", token_id, f"out of a total of {len(word2speechreps[wordtype].keys())} examples for {wordtype}")
     else:
-        get_specific_word_example = (unique_id and unique_id in word2speechreps[wordtype])
+        get_specific_word_example = (token_id and token_id in word2speechreps[wordtype])
         if get_specific_word_example:
             # particular word example
-            # print("not random, specific example!!!")
-            word_reps = word2speechreps[wordtype][unique_id]
+            print("not random, specific example!!!, using", token_id)
+            word_reps = word2speechreps[wordtype][token_id]
         else:
             # this is useful for inference time where we want to consistently pull same speech codes
-            examples = word2speechreps[wordtype].keys()
-            id_of_first_example = list(sorted(examples))[0]
-            # print(f"utt_id:{utt_id} count_of_word:{count_of_word} unique_id: {unique_id}. not random, retrieving first example for {wordtype}!!!", id_of_first_example, f"total examples: {len(examples)}")
-            word_reps = word2speechreps[wordtype][id_of_first_example]
+            use_first_example = True
+            if use_first_example:
+                examples = word2speechreps[wordtype].keys()
+                token_id = list(sorted(examples))[0] # get the first token by alphabetical order of all tokens for the wordtype
+                print(f"utt_id:{utt_id} count_of_word:{count_of_word} token_id: {token_id}. not random, retrieving first example for {wordtype}!!!", token_id, f"total examples: {len(examples)}")
+                word_reps = word2speechreps[wordtype][token_id]
+
 
     # optionally collapse duplicate codes
     word_reps = collapse_dups(word_reps, remove_dup_prob=remove_dup_prob, remove_dup_rand_num=remove_dup_rand_num)
@@ -240,7 +246,7 @@ def get_speechreps_for_word(wordtype, utt_id, count_of_word, word2speechreps,
     # optionally randomly dropout codes
     word_reps = dropout_timesteps(word_reps, p=dropout_p)
 
-    return word_reps
+    return word_reps, token_id
 
 def get_speechreps_for_utt(word_and_word_pos, utt_id, word2speechreps,
                            randomise_examples=False, remove_dup_prob=0.0,
@@ -527,6 +533,8 @@ def get_speechreps_inputs(tokens, main_word2speechreps,
     word_pos_of_speechreps = []
     word_counter = Counter()
 
+    token_ids = []
+
     for token in tokens:
         if token["word"] == bpe_whitespace_tok:
             pass
@@ -550,12 +558,15 @@ def get_speechreps_inputs(tokens, main_word2speechreps,
                     w2sr = ext_word2speechreps
 
                 #retrieve speech reps
-                word_speechreps = get_speechreps_for_word(
+                word_speechreps, token_id = get_speechreps_for_word(
                     token["word"], utt_id=utt_id, count_of_word=word_counter[token["word"]],
                     word2speechreps=w2sr, randomise_examples_p=randomise_examples_p,
                     remove_dup_prob=remove_dup_prob, remove_dup_rand_num=remove_dup_rand_num,
                     dropout_p=dropout_p,
                 )
+
+                if token_id is not None:
+                    token_ids.append(token_id)
 
                 speechreps.extend(word_speechreps)
                 word_pos_of_speechreps.extend(len(word_speechreps) * [token["word_pos"]])
@@ -563,7 +574,7 @@ def get_speechreps_inputs(tokens, main_word2speechreps,
             else: # unmasked word, do not need to add mask tokens
                 pass
 
-    return speechreps, word_pos_of_speechreps
+    return speechreps, word_pos_of_speechreps, token_ids
 
 
 def randomly_mask_words(text, p=0.5):

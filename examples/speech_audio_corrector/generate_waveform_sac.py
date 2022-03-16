@@ -13,6 +13,7 @@ import sys
 import torch
 import torchaudio
 import os
+import random
 
 from fairseq import checkpoint_utils, options, tasks, utils
 from fairseq.logging import progress_bar
@@ -48,6 +49,11 @@ def make_parser():
     parser.add_argument("--use-sample-id-as-filename", action="store_true")
     parser.add_argument("--use-external-speechreps", action="store_true",
                         help="Use this flag if you want to use speechreps from the external dataset to do inference.")
+    parser.add_argument("--append-token-ids-to-filename", action="store_true",
+                        help="Use this flag to append the sample id and word example number to the saved filename")
+
+    parser.add_argument("--random-seed", type=int, default=1337,
+                        help="random seed for ensuring that same wordtype is always retrieved no matter how many times we generate")
 
     return parser
 
@@ -83,7 +89,7 @@ def strip_pointy_brackets(s):
     return "".join(c for c in s if c not in ["<", ">"])
 
 def postprocess_results(
-        dataset: TextToSpeechDataset, sample, hypos, resample_fn, dump_target, sort_by_text=True
+        dataset: TextToSpeechDataset, sample, hypos, resample_fn, dump_target, sort_by_text=True,
 ):
     def to_np(x):
         return None if x is None else x.detach().cpu().numpy()
@@ -92,6 +98,11 @@ def postprocess_results(
         sample_ids = [dataset.ids[i] for i in sample["id"].tolist()]
     else:
         sample_ids = [None for _ in hypos]
+
+    # if sample["token_ids"] is not None:
+    #     token_ids = [i for i in sample["token_ids"]]
+    # else:
+    #     token_ids = None
 
     texts = sample["raw_texts"]
     attns = [to_np(hypo["attn"]) for hypo in hypos]
@@ -113,7 +124,7 @@ def postprocess_results(
 
     # sort the samples in batch by the text seq
     zipped = list(zip(sample_ids, texts, attns, eos_probs, feat_preds, wave_preds,
-               feat_targs, wave_targs, sac_friendly_texts))
+               feat_targs, wave_targs, sac_friendly_texts, sample["token_ids"]))
 
     # print("zipped text before sort", [tup[1] for tup in zipped])
 
@@ -144,6 +155,7 @@ def dump_result(
         vocoder,
         add_count_to_filename,
         use_sample_id_as_filename,
+        append_token_ids_to_filename,
         sample_id,
         text,
         attn,
@@ -153,23 +165,8 @@ def dump_result(
         feat_targ,
         wave_targ,
         sac_friendly_text,
+        token_ids,
 ):
-    # print("inside dump_result() is_na_model", is_na_model)
-    # print("inside dump_result() args", args)
-    # print("inside dump_result() count", count)
-    # print("inside dump_result() vocoder", vocoder)
-    # print("inside dump_result() add_count_to_filename", add_count_to_filename)
-    # print("inside dump_result() sample_id", sample_id)
-    # print("inside dump_result() text", text)
-    # print("inside dump_result() attn", attn)
-    # print("inside dump_result() eos_prob", eos_prob)
-    # print("inside dump_result() feat_pred", feat_pred)
-    # print("inside dump_result() wave_pred", wave_pred)
-    # print("inside dump_result() feat_targ", feat_targ)
-    # print("inside dump_result() wave_targ", wave_targ)
-    # print("inside dump_result() sac_friendly_text", sac_friendly_text)
-    # print("inside dump_result() use_sample_id_as_filename", use_sample_id_as_filename)
-
     # add useful info to filename
     if use_sample_id_as_filename:
         filename_no_ext = sample_id
@@ -181,6 +178,9 @@ def dump_result(
                 filename_no_ext = f"{count}-{text}"
             else:
                 filename_no_ext = f"{text}"
+
+            if append_token_ids_to_filename and len(token_ids) > 0:
+                filename_no_ext = filename_no_ext + f"-{'>'.join(token_ids)}"
 
     sample_rate = args.output_sample_rate
     out_root = Path(args.results_path)
@@ -272,6 +272,8 @@ def filter_utts_whose_words_do_not_have_speechreps(
     return new_utts
 
 def main(args):
+    random.seed(args.random_seed)
+
     assert(args.dump_features or args.dump_waveforms or args.dump_attentions
            or args.dump_eos_probs or args.dump_plots)
     if args.max_tokens is None and args.batch_size is None:
@@ -286,6 +288,8 @@ def main(args):
         task=task,
     )
     model = models[0].cuda() if use_cuda else models[0]
+
+    # print("HELLLLLLLO", model)
 
     # use the original n_frames_per_step
     task.args.n_frames_per_step = saved_cfg.task.n_frames_per_step
@@ -381,7 +385,7 @@ def main(args):
                     sort_by_text=True if args.txt_file else False,
             ):
                 count += 1
-                dump_result(is_na_model, args, count, vocoder, args.add_count_to_filename, args.use_sample_id_as_filename, *result)
+                dump_result(is_na_model, args, count, vocoder, args.add_count_to_filename, args.use_sample_id_as_filename, args.append_token_ids_to_filename, *result)
 
     print(f"*** Finished SAC generation of {count} items ***")
 

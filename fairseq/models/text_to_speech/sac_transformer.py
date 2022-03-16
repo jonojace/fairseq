@@ -205,9 +205,11 @@ class SACTransformerEncoder(FairseqEncoder):
         ################################################################################################################
         # Create a new padding mask for the transformer decoder to limit what timesteps of encoder out it can attend over
         if self.dont_mask_encoder_out_speech_timesteps:
+            # print("dont_mask_encoder_out_speech_timesteps == True")
             # decoder can attend over grapheme+speechreps timesteps
             encoder_padding_mask = graphemes_and_speechreps_padding_mask
         else:
+            # print("dont_mask_encoder_out_speech_timesteps == False")
             # pads out the speechreps sequence so that
             # the transformer decoder cannot attend over those output timesteps, and instead can only attend
             # over timesteps that correspond to the input graphemes

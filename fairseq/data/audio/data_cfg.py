@@ -128,6 +128,7 @@ class S2TDataConfig(object):
         cur = _cur.get("_eval") if cur is None and not is_train else cur
         cur = _cur.get("*") if cur is None else cur
         cfg["transforms"] = cur
+
         return cfg
 
     @property
