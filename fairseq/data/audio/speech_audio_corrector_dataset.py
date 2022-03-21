@@ -579,15 +579,15 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
             #     "p234", "p238", "p249", "p255", "p262", "p264", "p265", "p293", "p299", "p310", "p313", "p340", "p351", "p261"
             # ]
 
-            # # us eng female: p294, p297, p300, p301, p303, p306, p307, p308, p312, p317, p318, p329, p330, p333, p339, p341, p343, p361, p362, p305
-            # ext_speechreps_speakers_to_incl = [
-            #     "p294", "p297", "p300", "p301", "p303", "p306", "p307", "p308", "p312", "p317", "p318", "p329", "p330", "p333", "p339", "p341", "p343", "p361", "p362", "p305",
-            # ]
-
-            # scot eng female: p234, p238, p249, p255, p262, p264, p265, p293, p299, p310, p313, p340, p351, p261
+            # us eng female: p294, p297, p300, p301, p303, p306, p307, p308, p312, p317, p318, p329, p330, p333, p339, p341, p343, p361, p362, p305
             ext_speechreps_speakers_to_incl = [
-                "p234", "p238", "p249", "p255", "p262", "p264", "p265", "p293", "p299", "p310", "p313", "p340", "p351", "p261"
+                "p294", "p297", "p300", "p301", "p303", "p306", "p307", "p308", "p312", "p317", "p318", "p329", "p330", "p333", "p339", "p341", "p343", "p361", "p362", "p305",
             ]
+
+            # # scot eng female: p234, p238, p249, p255, p262, p264, p265, p293, p299, p310, p313, p340, p351, p261
+            # ext_speechreps_speakers_to_incl = [
+            #     "p234", "p238", "p249", "p255", "p262", "p264", "p265", "p293", "p299", "p310", "p313", "p340", "p351", "p261"
+            # ]
         else:
             raise ValueError
 
