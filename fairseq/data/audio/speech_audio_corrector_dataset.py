@@ -520,15 +520,21 @@ class SpeechAudioCorrectorDatasetCreator(TextToSpeechDatasetCreator):
         # dictionary mapping from a wordtype to speech codes for each word example in a corpus
         cls.word2speechreps_dir = "/home/s1785140/data/word2speechreps"
 
+        alignment_type = "mfa" # TODO change me!!!
+
         # LJSpeech word2speechreps
-        speechrep_file = args.quantized_speechreps_file # "/home/s1785140/fairseq/examples/speech_audio_corrector/lj_speech_quantized.txt"
-        num_clusters = get_num_clusters(speechrep_file)
-        alignments_dir = "/home/s1785140/data/ljspeech_MFA_alignments_from_fb"
-        word2speechreps, ids2word_alignments = cls.get_word2speechreps(
-            speechrep_file, alignments_dir, ids=ids, corpus="ljspeech",
-            split=split_name, force_creation=args.recreate_word2speechreps,
-            num_clusters=num_clusters,
-        )
+        if alignment_type == "mfa":
+            speechrep_file = args.quantized_speechreps_file # "/home/s1785140/fairseq/examples/speech_audio_corrector/lj_speech_quantized.txt"
+            num_clusters = get_num_clusters(speechrep_file)
+            alignments_dir = "/home/s1785140/data/ljspeech_MFA_alignments_from_fb"
+            word2speechreps, ids2word_alignments = cls.get_word2speechreps(
+                speechrep_file, alignments_dir, ids=ids, corpus="ljspeech",
+                split=split_name, force_creation=args.recreate_word2speechreps,
+                num_clusters=num_clusters,
+            )
+        elif alignment_type == "e2e":
+            # load e2e alignments from disk
+            pass
 
         # VCTK word2speechreps
         # additional external source of word-aligned speech reps

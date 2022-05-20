@@ -11,7 +11,7 @@ from pathlib import Path
 from collections import defaultdict
 
 import pandas as pd
-from torchaudio.datasets import VCTK
+from torchaudio.datasets import VCTK_092
 from tqdm import tqdm
 
 from examples.speech_to_text.data_utils import save_df_to_tsv
@@ -32,8 +32,11 @@ def process(args):
 
     # Generate TSV manifest
     print("Generating manifest...")
-    dataset = VCTK(out_root.as_posix(), download=False)
-    ids = list(dataset._walker)
+    dataset = VCTK_092(out_root.as_posix(), download=True)
+    print("JASON DEBUG 1:", dataset._sample_ids[:10])
+    sample_ids = [f"{spk}_{utt_num}" for spk, utt_num in dataset._sample_ids]
+    print("JASON DEBUG 2:", sample_ids[:10])
+    ids = list(sample_ids)
     np.random.seed(args.seed)
     np.random.shuffle(ids)
     n_train = len(ids) - args.n_dev - args.n_test
@@ -42,9 +45,11 @@ def process(args):
     manifest_by_split = {split: defaultdict(list) for split in SPLITS}
     progress = tqdm(enumerate(dataset), total=len(dataset))
     for i, (waveform, _, text, speaker_id, _) in progress:
-        sample_id = dataset._walker[i]
+        sample_id = sample_ids[i]
         _split = id_to_split[sample_id]
-        audio_dir = Path(dataset._path) / dataset._folder_audio / speaker_id
+        # print("JASON DEBUG 3:", dataset._path)
+        # audio_dir = Path(dataset._path) / dataset._folder_audio / speaker_id
+        audio_dir = Path(dataset._path) / Path("wav48_silence_trimmed") / speaker_id # hard coded as _folder_audio attribute no longer exists with VCTK_092
         audio_path = audio_dir / f"{sample_id}.wav"
         text = normalize_text(text)
         manifest_by_split[_split]["id"].append(sample_id)

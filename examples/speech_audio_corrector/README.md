@@ -1,6 +1,6 @@
-# Transformer Acoustic Corrector
+# Train Speech Audio Corrector single speaker dataset 
 
-# Install/setup conda env and fairseq
+## Install/setup conda env and fairseq
 
 ```bash
 conda update -y -n base -c defaults conda
@@ -41,7 +41,7 @@ cd apex
 pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
 ```
 
-# Setup TTS data 
+## Setup TTS data 
 
 (from https://github.com/pytorch/fairseq/blob/main/examples/speech_synthesis/docs/ljspeech_example.md)
 
@@ -102,13 +102,104 @@ python -m examples.speech_synthesis.preprocessing.get_feature_manifest \
 ## onallnodes /home/s1785140/fairseq/examples/speech_audio_corrector/copy_data_to_scratch.sh
 ```
 
+```bash
+
+# VCTK audio manifest @ https://github.com/pytorch/fairseq/blob/main/examples/speech_synthesis/docs/vctk_example.md
+VCTKDIR=/home/s1785140/data/VCTK_fairseq
+mkdir $VCTKDIR
+cd $VCTKDIR
+
+mkdir audio_data
+mkdir audio_manifest
+mkdir feature_manifest
+
+# audio manifest (get_vctk_audio_manifest will download VCTK itself into '$VCTKDIR/audio_data' dir)
+AUDIO_DATA_ROOT=$VCTKDIR/audio_data
+AUDIO_MANIFEST_ROOT=$VCTKDIR/audio_manifest
+python -m examples.speech_synthesis.preprocessing.get_vctk_audio_manifest \
+  --output-data-root ${AUDIO_DATA_ROOT} \
+  --output-manifest-root ${AUDIO_MANIFEST_ROOT}
+  
+# convert files from flac to wav
+vctk_path=/home/s1785140/data/VCTK_fairseq/audio_data/VCTK-Corpus-0.92/wav48_silence_trimmed
+cd $vctk_path
+find . -name "*_mic2.flac" -print0 | 
+    while IFS= read -r -d '' line; do 
+        echo "$line"
+        basename=${line//_mic2.flac/}
+        sox $line ${basename}.wav
+        rm $line # remove flac file
+    done
+
+# feature manifest, create feature manifest
+FEATURE_MANIFEST_ROOT=$VCTKDIR/feature_manifest
+python -m examples.speech_synthesis.preprocessing.get_feature_manifest \
+  --audio-manifest-root ${AUDIO_MANIFEST_ROOT} \
+  --output-root ${FEATURE_MANIFEST_ROOT}
+
+# note can optionally add SNR or CER filtering when creating feature manifest, look @ https://github.com/pytorch/fairseq/blob/main/examples/speech_synthesis/docs/vctk_example.md
+
+# resample to 16khz for hubert extraction
+cd /home/s1785140/data/VCTK_fairseq/audio_data/VCTK-Corpus-0.92
+for i in wav48_silence_trimmed/*/*.wav; 
+do 
+#  echo $i 
+  o=wav48_silence_trimmed_16kHz/${i#wav48_silence_trimmed/}
+  echo $o
+  speaker_dir="$(dirname "${o}")"
+#  echo $speaker_dir
+  mkdir -p $speaker_dir
+#  sox -v 0.95 "$i" -r 16000 "${o%.wav}.wav" #need to reduce vol to stop clipping of samples?
+  sox "$i" -r 16000 "${o%.wav}.wav"
+done
+
+# extract hubert codes (do on gpu node for better speed)
+TYPE=hubert
+NUM_CLUSTERS=100
+KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km${NUM_CLUSTERS}.bin
+ACSTC_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/hubert_base_ls960.pt
+LAYER=6
+MANIFEST=~/fairseq/examples/speech_audio_corrector/manifests/vctk_fairseq.txt # created using notebooks/create_audio_manifest_for_hubert_code_extraction.ipynb
+OUT_QUANTIZED_FILE=~/fairseq/examples/speech_audio_corrector/vctk_fairseq_quantized_km${NUM_CLUSTERS}.txt
+EXTENSION=".wav"
+
+cd ~/fairseq
+python examples/textless_nlp/gslm/speech2unit/clustering/quantize_with_kmeans.py \
+    --feature_type $TYPE \
+    --kmeans_model_path $KM_MODEL_PATH \
+    --acoustic_model_path $ACSTC_MODEL_PATH \
+    --layer $LAYER \
+    --manifest_path $MANIFEST \
+    --out_quantized_file_path $OUT_QUANTIZED_FILE \
+    --extension $EXTENSION
+    
+TYPE=hubert
+NUM_CLUSTERS=200
+KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km${NUM_CLUSTERS}.bin
+ACSTC_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/hubert_base_ls960.pt
+LAYER=6
+MANIFEST=~/fairseq/examples/speech_audio_corrector/manifests/vctk_fairseq.txt
+OUT_QUANTIZED_FILE=~/fairseq/examples/speech_audio_corrector/vctk_fairseq_quantized_km${NUM_CLUSTERS}.txt
+EXTENSION=".wav"
+
+cd ~/fairseq
+python examples/textless_nlp/gslm/speech2unit/clustering/quantize_with_kmeans.py \
+    --feature_type $TYPE \
+    --kmeans_model_path $KM_MODEL_PATH \
+    --acoustic_model_path $ACSTC_MODEL_PATH \
+    --layer $LAYER \
+    --manifest_path $MANIFEST \
+    --out_quantized_file_path $OUT_QUANTIZED_FILE \
+    --extension $EXTENSION
+```
+
 To investigate what scratch disks are available on a node get an interactive job on it:
 
 ```bash
 NODE=duflo; srun --part=ILCC_GPU,CDT_GPU --nodelist=$NODE --pty bash
 ```
 
-# (Optional) setup hifigan vocoder
+## (Optional) setup hifigan vocoder
 
 Download checkpoint from hifigan repo (e.g. universal V1)
 
@@ -123,7 +214,7 @@ vocoder:
 
 Then add --vocoder hifigan to model training commands
 
-# Vanilla TTS training command
+## Vanilla TTS training command
 ```bash
 NUM_GPUS=2
 CPUS_PER_TASK=2
@@ -154,12 +245,12 @@ fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --seed 1 --update-freq $UPDATE_FREQ --best-checkpoint-metric loss
 ```
 
-# Choosing max tokens and update freq depending on number of GPUs
+## Choosing max tokens and update freq depending on number of GPUs
 
-## default single gpu training for transformer TTS
+### default single gpu training for transformer TTS
 default 30000 max tokens x 8 update frequency = 240000 tokens per update
 
-## getting to new values for multigpu training
+### getting to new values for multigpu training
 
 30000 max tokens per device results in OOM
 want to reduce to 20000 per device
@@ -196,7 +287,7 @@ update_freq	max_tokens_per_gpu
 15	        4000
 16	        3750
 
-# Training command (for debugging)
+## Training command (for debugging)
 ```bash
 ##################################################################################################
 # Get suitable GPU node
@@ -260,7 +351,7 @@ fairseq-train ${FEATURE_MANIFEST_ROOT} \
   --randomise-examples-p 1.0
 ```
 
-# Generate waveform
+## Generate waveform
 
 ## Normal TTS speech synthesis 
 
@@ -447,7 +538,7 @@ done
 
 ## Speech Audio Correction speech synthesis
 
-# Setup Speech Reps data
+## Setup Speech Reps data
 
 1) obtain discretised speech reps
 https://github.com/pytorch/fairseq/tree/master/examples/textless_nlp/gslm/speech2unit
@@ -494,12 +585,7 @@ kmeans_model = joblib.load(open(kmeans_model_path, "rb")) # this is just a sklea
 centroids = kmeans_model.cluster_centers_
 ```
 
-
-
-
-# install reqs
-
-# Train model
+## Train model
 
 
 
@@ -623,33 +709,174 @@ fairseq-hydra-train \
     --no-save
 ```
 
-# Generate features for SAC inference
+## Generate features for SAC inference
 
 How to generate features for a new dataset.
 
-## Get MFA alignments
+### Get MFA alignments
 
-We need to generate ground truth alignments for LJ Speech
+Rearrange VCTK file structure for use with MFA
+
+```bash
+REARRANGED='/home/s1785140/data/VCTK_fairseq/audio_data/VCTK-Corpus-0.92/wav48_silence_trimmed_rearranged_for_MFA'
+
+cd ~/fairseq/examples/speech_audio_corrector/
+python reorganize_vctk_for_montreal.py \
+  --input_dir ~/data/VCTK_fairseq/audio_data/VCTK-Corpus-0.92 \
+  --output_dir $REARRANGED
+```
+
+We need to generate ground truth alignments for speech corpus
 
 ```bash 
-conda update -y -n base -c defaults conda
-conda env remove -y --name mfa
-conda create -y -n mfa python=3.8 
-conda activate mfa
-mfa model download acoustic english
-mfa model download dictionary english
+# update conda
+conda update -n base -c defaults conda
 
-CORPUS=/home/s1785140/data/vqvae_wavernn_trimmed_wavs
-OUTDIR=/home/s1785140/data/vctk_montreal_alignments_from_trimmed_wavs
-mfa validate $CORPUS english english
-mfa align --clean $CORPUS english english $OUTDIR
+#install MFA in new conda env
+conda create -n aligner -c conda-forge montreal-forced-aligner
+source ~/.bashrc
+conda activate aligner
+
+# download models
+mfa model download acoustic english_mfa
+mfa model download dictionary english_mfa
+
+# run validate and align
+REARRANGED='/home/s1785140/data/VCTK_fairseq/audio_data/VCTK-Corpus-0.92/wav48_silence_trimmed_rearranged_for_MFA'
+OUTDIR='/home/s1785140/data/VCTK_fairseq/mfa_alignments'
+mfa validate $REARRANGED english_mfa english_mfa
+mfa align --clean $REARRANGED english_mfa english_mfa $OUTDIR
+
+# keep track of unaligned files (might want to exclude these from audio and features manifest
+# @/home/s1785140/Documents/MFA/wav48_silence_trimmed_rearranged_for_MFA_validate_pretrained/unalignable_files.csv
 ```
+
+# Speech Audio Corrector multispeaker dataset
+
+## Combine different datasets (optional)
+
+In order to train a model that reconstructs both LJspeech and VCTK then we need to make a combined feature manifest that contains
+both LJ and VCTK.
+
+We do this by combining train dev and test tsv files using the following script
+
+```bash
+mkdir -p /home/s1785140/data/LJ_and_VCTK_fairseq/feature_manifest/
+cd examples/speech_audio_corrector
+
+python combine_manifests.py \
+    --in_tsvs /home/s1785140/data/LJSpeech-1.1/feature_manifest/train.tsv /home/s1785140/data/VCTK_fairseq/feature_manifest/train.tsv \
+    --out_tsv /home/s1785140/data/LJ_and_VCTK_fairseq/feature_manifest/train.tsv
+    
+python combine_manifests.py \
+    --in_tsvs /home/s1785140/data/LJSpeech-1.1/feature_manifest/dev.tsv /home/s1785140/data/VCTK_fairseq/feature_manifest/dev.tsv \
+    --out_tsv /home/s1785140/data/LJ_and_VCTK_fairseq/feature_manifest/dev.tsv
+    
+python combine_manifests.py \
+    --in_tsvs /home/s1785140/data/LJSpeech-1.1/feature_manifest/test.tsv /home/s1785140/data/VCTK_fairseq/feature_manifest/test.tsv \
+    --out_tsv /home/s1785140/data/LJ_and_VCTK_fairseq/feature_manifest/test.tsv
+```
+
+Then backup the original tsvs in the VCTK feature manifest directory 
+
+```bash
+mv /home/s1785140/data/VCTK_fairseq/feature_manifest/train.tsv /home/s1785140/data/VCTK_fairseq/feature_manifest/train.backup.tsv
+mv /home/s1785140/data/VCTK_fairseq/feature_manifest/dev.tsv /home/s1785140/data/VCTK_fairseq/feature_manifest/dev.backup.tsv
+mv /home/s1785140/data/VCTK_fairseq/feature_manifest/test.tsv /home/s1785140/data/VCTK_fairseq/feature_manifest/test.backup.tsv
+mv /home/s1785140/data/VCTK_fairseq/feature_manifest/speakers.txt /home/s1785140/data/VCTK_fairseq/feature_manifest/speakers.backup.txt
+```
+
+Then we replace the original tsvs with the new combined tsvs. (we do this in the VCTK directory and not in the LJ Speech one
+because we want to enable multispeaker training. Which is achieved by defining a list of speakers AKA 'speaker_set_filename' in
+config.yaml. This is all done automatically when creating the VCTK feature manifest by using the get_vctk_audio_manifest()
+and get_feature_manifest() functions.
+
+```bash
+# copy ljspeech and vctk manifests in
+cp /home/s1785140/data/LJ_and_VCTK_fairseq/feature_manifest/train.tsv /home/s1785140/data/VCTK_fairseq/feature_manifest/
+cp /home/s1785140/data/LJ_and_VCTK_fairseq/feature_manifest/dev.tsv /home/s1785140/data/VCTK_fairseq/feature_manifest/
+cp /home/s1785140/data/LJ_and_VCTK_fairseq/feature_manifest/test.tsv /home/s1785140/data/VCTK_fairseq/feature_manifest/
+```
+
+Then, we must also add 'ljspeech' to the speakers.txt file created when creating feature manifest for VCTK. (Note that 
+this speakers.txt file is "speaker_set_filename" referred to in config.yaml and 
+fairseq.tasks.speech_to_text.SpeechToTextTask._get_speaker_to_id 
+
+```bash
+# Add 'ljspeech' to last line of ~/data/VCTK_fairseq/feature_manifest/speakers.txt
+echo ljspeech >> /home/s1785140/data/VCTK_fairseq/feature_manifest/speakers.txt
+```
+
+## Extract speaker embeddings (xvectors, x-vectors) for multispeaker TTS training
+
+### Using speechbrain 
+
+(Instructions @ https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb or https://huggingface.co/speechbrain/spkrec-xvect-voxceleb)
+
+Install speechbrain
+
+```bash
+# update conda
+conda update -n base -c defaults conda
+
+#install in new conda env
+conda create -n speechbrain python=3.8
+source ~/.bashrc
+conda activate speechbrain
+
+pip install --upgrade pip
+pip install speechbrain
+conda install -c conda-forge jupyterlab
+
+# test installation
+pytest tests
+pytest --doctest-modules speechbrain
+```
+
+Get GPU node
+
+```bash
+srun --part=ILCC_GPU,CDT_GPU --gres=gpu:1 --cpus-per-task=2 --exclude=arnold,duflo --mem=16000 --pty bash
+conda activate speechbrain
+```
+
+Run jupyter notebook or python script to extract
+
+```bash
+cd ~/fairseq/examples/speech_audio_corrector/
+jupyter-lab --no-browser --ip=0.0.0.0
+# go to notebooks folder
+
+python extract_speaker_vectors.py --dataset vctk
+python extract_speaker_vectors.py --dataset ljspeech
+```
+
+## Create speaker emb numpy array that is loaded as pretrained speaker embeddings for TTS or SAC training 
+
+We need to create the file referenced as 'speaker_emb_filename' and is defined in config.yaml
+
+Create speaker embedding numpy array according to the speaker embeddings you've calculated and the order of speakers 
+in speakers.txt
+
+```bash
+# note the order of speakers in speaker_emb_mat should match the order of speakers in  speakers.txt 
+# as the order of the speakers in speakers.txt  defines the order in speaker_to_id
+cd ~/fairseq/examples/speech_audio_corrector/
+python create_spk_emb_table.py \
+  --embeddings_dir /home/s1785140/fairseq/examples/speech_audio_corrector/speaker_embeddings/ \
+  --speaker_list /home/s1785140/data/VCTK_fairseq/feature_manifest/speakers.txt \
+  --outfile /home/s1785140/data/VCTK_fairseq/feature_manifest/speaker_embeddings.npy 
+```
+
+## Set path to 'speaker_emb_path' in config.yaml
+
+echo 'speaker_emb_path: speaker_embeddings.npy' >> /home/s1785140/data/VCTK_fairseq/feature_manifest/config.yaml
 
 ## Get HuBERT codes for wavs in corpus 
 
 Instructions @ https://github.com/pytorch/fairseq/tree/main/examples/textless_nlp/gslm/speech2unit
 
-### Resample speech to that required by Hubert (16Khz)
+Resample speech to that required by Hubert (16Khz)
 
 Use fairseq/examples/speech_audio_corrector/bash_scripts/recursive_resample.sh
 
@@ -696,7 +923,7 @@ Seems to be ok to put 0 for number_of_samples
 ...
 ```
 
-use create_audio_manifest_for_hubert_code_extraction.ipynb to do this 
+use create_audio_manifest_for_hubert_code_extraction.ipynb to do this
 
 ### Download pretrained hubert and k-means clustering models
 
@@ -792,11 +1019,12 @@ python examples/textless_nlp/gslm/speech2unit/clustering/quantize_with_kmeans.py
 VCTK
 ```bash
 TYPE=hubert
-KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km50.bin
+NUM_CLUSTERS=100
+KM_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/km${NUM_CLUSTERS}.bin
 ACSTC_MODEL_PATH=~/fairseq/examples/textless_nlp/gslm/speech2unit/pretrained_models/hubert/hubert_base_ls960.pt
 LAYER=6
 MANIFEST=~/fairseq/examples/speech_audio_corrector/manifests/vctk.txt
-OUT_QUANTIZED_FILE=~/fairseq/examples/speech_audio_corrector/vctk_quantized.txt
+OUT_QUANTIZED_FILE=~/fairseq/examples/speech_audio_corrector/vctk_quantized_km${NUM_CLUSTERS}.txt
 EXTENSION=".wav"
 
 # CUDA_VISIBLE_DEVICES=9
@@ -811,7 +1039,9 @@ python examples/textless_nlp/gslm/speech2unit/clustering/quantize_with_kmeans.py
     --extension $EXTENSION
 ```
 
-# Get CTC-segmentation word alignments for SAC-LR (low resource training of SAC)
+# Low resource alignments for SAC 
+
+Get CTC-segmentation word alignments for SAC-LR (low resource training of SAC)
 
 No need to use mfa alignments
 
